@@ -84,6 +84,20 @@ export async function saveProduct(productData) {
   return parseResponse(response);
 }
 
+export async function updateProductStock(productId, stockQuantity) {
+  const response = await protectedRequest(`/products/${productId}/stock`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stockQuantity }),
+  });
+  return parseResponse(response);
+}
+
+export async function fetchAdminDashboard() {
+  const response = await protectedRequest('/admin/dashboard');
+  return parseResponse(response);
+}
+
 export async function getAdminSession() {
   const response = await request('/admin/auth/session');
   if (response.status === 401 || response.status === 403) return null;
@@ -137,6 +151,15 @@ export async function createOrder(orderData) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(orderData),
+  });
+  return parseResponse(response);
+}
+
+export async function createPaymentCheckout(checkoutData) {
+  const response = await protectedRequest('/customer/payments/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(checkoutData),
   });
   return parseResponse(response);
 }

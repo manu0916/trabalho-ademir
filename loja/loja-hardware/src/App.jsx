@@ -13,6 +13,8 @@ import {
   loginAdmin,
   logoutAdmin,
   saveProduct,
+  fetchAdminDashboard,
+  updateProductStock,
 } from './services/api';
 
 export default function App() {
@@ -27,6 +29,7 @@ export default function App() {
   const [productsError, setProductsError] = useState('');
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [dashboard, setDashboard] = useState(null);
 
   useEffect(() => {
     let isActive = true;
@@ -49,6 +52,11 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!adminSession || currentView !== 'admin') return;
+    fetchAdminDashboard().then(setDashboard).catch(() => setDashboard(null));
+  }, [adminSession, currentView]);
+
   const filteredProducts = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase('pt-BR');
     if (!normalizedQuery) return products;
@@ -64,7 +72,26 @@ export default function App() {
     try {
       const saved = await saveProduct(newProduct);
       setProducts((previous) => [saved, ...previous]);
+      setDashboard((previous) => previous && ({
+        ...previous,
+        registeredProducts: previous.registeredProducts + 1,
+        inventory: [saved, ...previous.inventory],
+      }));
       alert('Produto salvo com sucesso no banco de dados.');
+    } catch (error) {
+      if (error.status === 401 || error.status === 403) setAdminSession(null);
+      throw error;
+    }
+  };
+
+  const handleUpdateStock = async (productId, stockQuantity) => {
+    try {
+      const saved = await updateProductStock(productId, stockQuantity);
+      setProducts((previous) => previous.map((product) => product.id === saved.id ? saved : product));
+      setDashboard((previous) => previous && ({
+        ...previous,
+        inventory: previous.inventory.map((product) => product.id === saved.id ? saved : product),
+      }));
     } catch (error) {
       if (error.status === 401 || error.status === 403) setAdminSession(null);
       throw error;
@@ -80,6 +107,8 @@ export default function App() {
     setCart((previous) => {
       const existingProduct = previous.find((item) => item.id === product.id);
       if (!existingProduct) return [...previous, { ...product, quantity: 1 }];
+
+      if (existingProduct.quantity >= product.stockQuantity) return previous;
 
       return previous.map((item) => (
         item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
@@ -137,6 +166,8 @@ export default function App() {
             currentStoreName={storeName}
             onUpdateStoreName={setStoreName}
             onAddProduct={handleAddProduct}
+            dashboard={dashboard}
+            onUpdateStock={handleUpdateStock}
             onLogout={handleLogout}
           />
         ) : (

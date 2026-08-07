@@ -5,6 +5,7 @@ create table if not exists public.products (
   price numeric(10, 2) not null,
   image_url varchar(500),
   description varchar(2000),
+  stock_quantity integer not null default 0 check (stock_quantity >= 0),
   constraint products_category_check check (category in ('GPU', 'CPU', 'RAM', 'SSD', 'Fonte')),
   constraint products_price_check check (price >= 0.01)
 );
@@ -29,7 +30,11 @@ create table if not exists public.purchase_orders (
   cpf varchar(11) not null,
   payment_method varchar(30) not null,
   total numeric(12, 2) not null check (total >= 0),
-  status varchar(30) not null default 'RECEBIDO',
+  status varchar(30) not null default 'PENDING_PAYMENT',
+  external_reference varchar(80) unique,
+  payment_preference_id varchar(120) unique,
+  gateway_payment_id varchar(120) unique,
+  paid_at timestamptz,
   created_at timestamptz not null default now()
 );
 
@@ -44,3 +49,13 @@ create table if not exists public.purchase_order_items (
   quantity integer not null check (quantity between 1 and 99),
   unit_price numeric(12, 2) not null check (unit_price >= 0)
 );
+
+-- Safe upgrades for databases created by older versions of the application.
+alter table public.products add column if not exists stock_quantity integer not null default 0;
+alter table public.purchase_orders add column if not exists external_reference varchar(80);
+alter table public.purchase_orders add column if not exists payment_preference_id varchar(120);
+alter table public.purchase_orders add column if not exists gateway_payment_id varchar(120);
+alter table public.purchase_orders add column if not exists paid_at timestamptz;
+create unique index if not exists purchase_orders_external_reference_unique on public.purchase_orders (external_reference) where external_reference is not null;
+create unique index if not exists purchase_orders_payment_preference_unique on public.purchase_orders (payment_preference_id) where payment_preference_id is not null;
+create unique index if not exists purchase_orders_gateway_payment_unique on public.purchase_orders (gateway_payment_id) where gateway_payment_id is not null;

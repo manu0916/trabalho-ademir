@@ -25,7 +25,7 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties({AdminProperties.class, SecurityProperties.class})
+@EnableConfigurationProperties({AdminProperties.class, SecurityProperties.class, MercadoPagoProperties.class})
 public class SecurityConfig {
 
     @Bean
@@ -36,7 +36,10 @@ public class SecurityConfig {
                                                    CsrfTokenRepository csrfTokenRepository) throws Exception {
         http
                 .cors(Customizer.withDefaults())
-                .csrf(csrf -> csrf.csrfTokenRepository(csrfTokenRepository))
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(csrfTokenRepository)
+                        // The gateway cannot carry a browser CSRF cookie. Its payload is verified server-to-server.
+                        .ignoringRequestMatchers("/api/payments/mercado-pago/webhook"))
                 .securityContext(context -> context
                         .securityContextRepository(securityContextRepository)
                         .requireExplicitSave(true))
@@ -70,9 +73,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/admin/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/admin/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/payments/mercado-pago/webhook").permitAll()
                         .requestMatchers("/api/customer/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/products/**").hasRole("ADMIN")
                         .anyRequest().denyAll())
                 .addFilterBefore(apiRateLimitFilter, UsernamePasswordAuthenticationFilter.class);
 

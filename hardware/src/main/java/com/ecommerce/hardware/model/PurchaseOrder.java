@@ -44,7 +44,19 @@ public class PurchaseOrder {
     private BigDecimal total;
 
     @Column(nullable = false, length = 30)
-    private String status = "RECEBIDO";
+    private String status = "PENDING_PAYMENT";
+
+    @Column(name = "external_reference", unique = true, length = 80)
+    private String externalReference;
+
+    @Column(name = "payment_preference_id", unique = true, length = 120)
+    private String paymentPreferenceId;
+
+    @Column(name = "gateway_payment_id", unique = true, length = 120)
+    private String gatewayPaymentId;
+
+    @Column(name = "paid_at")
+    private Instant paidAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
@@ -79,4 +91,16 @@ public class PurchaseOrder {
     public String getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
     public List<PurchaseOrderItem> getItems() { return items; }
+    public String getExternalReference() { return externalReference; }
+    public String getPaymentPreferenceId() { return paymentPreferenceId; }
+    public String getGatewayPaymentId() { return gatewayPaymentId; }
+    public Instant getPaidAt() { return paidAt; }
+    public void setExternalReference(String externalReference) { this.externalReference = externalReference; }
+    public void setPaymentPreferenceId(String paymentPreferenceId) { this.paymentPreferenceId = paymentPreferenceId; }
+    public void setTotal(BigDecimal total) { this.total = total; }
+    public void markPaid(String gatewayPaymentId) {
+        this.status = "PAID";
+        this.gatewayPaymentId = gatewayPaymentId;
+        this.paidAt = Instant.now();
+    }
 }

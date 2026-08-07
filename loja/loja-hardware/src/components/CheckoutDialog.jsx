@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { createOrder } from '../services/api';
+import { createPaymentCheckout } from '../services/api';
 
 function isValidCpf(value) {
   const cpf = value.replace(/\D/g, '');
@@ -42,7 +42,7 @@ export default function CheckoutDialog({ isOpen, onClose, cartItems, onOrderCrea
 
     setIsSubmitting(true);
     try {
-      const order = await createOrder({
+      const checkout = await createPaymentCheckout({
         fullName,
         email,
         cpf,
@@ -52,8 +52,8 @@ export default function CheckoutDialog({ isOpen, onClose, cartItems, onOrderCrea
           quantity: item.quantity,
         })),
       });
-      setSuccess(`Pedido #${order.id} registrado com sucesso.`);
       onOrderCreated();
+      window.location.assign(checkout.checkoutUrl);
     } catch (requestError) {
       setError(requestError.message || 'Não foi possível registrar seu pedido.');
     } finally {
@@ -101,7 +101,7 @@ export default function CheckoutDialog({ isOpen, onClose, cartItems, onOrderCrea
             </div>
             {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
             <button disabled={isSubmitting} className="w-full rounded-xl bg-sky-500 py-3 font-semibold text-black transition hover:bg-sky-400 disabled:cursor-wait disabled:opacity-60">
-              {isSubmitting ? 'Registrando pedido...' : 'Confirmar pedido'}
+              {isSubmitting ? 'Redirecionando para pagamento...' : 'Ir para pagamento seguro'}
             </button>
           </form>
         )}

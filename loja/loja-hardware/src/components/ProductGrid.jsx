@@ -49,14 +49,18 @@ export default function ProductGrid({ products, onAddToCart }) {
                   <span className="text-xl font-bold text-white">
                     R$ {Number(product.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </span>
+                  <span className={`mt-1 block text-xs ${product.stockQuantity > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {product.stockQuantity > 0 ? `${product.stockQuantity} em estoque` : 'Esgotado'}
+                  </span>
                 </div>
                 <motion.button
                   type="button"
                   whileTap={{ scale: 0.95 }}
                   onClick={() => onAddToCart(product)}
-                  className="cursor-pointer rounded-lg bg-sky-500 px-4 py-2 text-sm font-medium text-black shadow-lg shadow-sky-500/20 transition-colors hover:bg-sky-400"
+                  disabled={product.stockQuantity < 1}
+                  className="cursor-pointer rounded-lg bg-sky-500 px-4 py-2 text-sm font-medium text-black shadow-lg shadow-sky-500/20 transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400 disabled:shadow-none"
                 >
-                  Comprar
+                  {product.stockQuantity > 0 ? 'Comprar' : 'Esgotado'}
                 </motion.button>
               </div>
             </div>

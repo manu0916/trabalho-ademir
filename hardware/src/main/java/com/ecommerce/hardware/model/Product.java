@@ -32,4 +32,22 @@ public class Product {
     
     @Column(length = 2000)
     private String description;
+
+    /** Units currently available for sale. Updated only inside a database transaction. */
+    @Column(nullable = false)
+    private Integer stockQuantity = 0;
+
+    @Version
+    private Long version;
+
+    /** Compatibility constructor for existing imports; new products should always set stock explicitly. */
+    public Product(Long id, String name, String category, BigDecimal price, String imageUrl, String description) {
+        this.id = id;
+        this.name = name;
+        this.category = category;
+        this.price = price;
+        this.imageUrl = imageUrl;
+        this.description = description;
+        this.stockQuantity = 0;
+    }
 }

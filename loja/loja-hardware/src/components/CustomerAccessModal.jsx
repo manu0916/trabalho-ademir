@@ -62,7 +62,7 @@ export default function CustomerAccessModal({ isOpen, onAuthenticated }) {
             onChange={(event) => setUsername(event.target.value)}
             minLength="3"
             maxLength="40"
-            pattern="[A-Za-z0-9._-]+"
+            pattern="[-A-Za-z0-9._]+"
             autoComplete="username"
             required
             className="mt-2 w-full rounded-lg border border-zinc-700 bg-black/30 px-3 py-2.5 text-white outline-none transition focus:border-sky-400"
