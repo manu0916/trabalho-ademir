@@ -6,6 +6,7 @@ create table if not exists public.products (
   image_url varchar(500),
   description varchar(2000),
   stock_quantity integer not null default 0 check (stock_quantity >= 0),
+  version bigint not null default 0,
   constraint products_category_check check (category in ('GPU', 'CPU', 'RAM', 'SSD', 'Fonte')),
   constraint products_price_check check (price >= 0.01)
 );
@@ -52,6 +53,7 @@ create table if not exists public.purchase_order_items (
 
 -- Safe upgrades for databases created by older versions of the application.
 alter table public.products add column if not exists stock_quantity integer not null default 0;
+alter table public.products add column if not exists version bigint not null default 0;
 alter table public.purchase_orders add column if not exists external_reference varchar(80);
 alter table public.purchase_orders add column if not exists payment_preference_id varchar(120);
 alter table public.purchase_orders add column if not exists gateway_payment_id varchar(120);
