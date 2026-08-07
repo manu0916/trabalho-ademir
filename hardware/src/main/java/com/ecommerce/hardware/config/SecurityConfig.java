@@ -3,6 +3,7 @@ package com.ecommerce.hardware.config;
 import com.ecommerce.hardware.security.ApiRateLimitFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -104,8 +105,12 @@ public class SecurityConfig {
     }
 
     @Bean
-    public CsrfTokenRepository csrfTokenRepository() {
-        return CookieCsrfTokenRepository.withHttpOnlyFalse();
+    public CsrfTokenRepository csrfTokenRepository(@Value("${app.cookies.cross-site:false}") boolean crossSiteCookies) {
+        CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        if (crossSiteCookies) {
+            repository.setCookieCustomizer(cookie -> cookie.sameSite("None").secure(true));
+        }
+        return repository;
     }
 
     private void writeJsonError(HttpServletResponse response, int status, String message) throws java.io.IOException {

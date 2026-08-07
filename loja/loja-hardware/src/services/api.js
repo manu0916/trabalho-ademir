@@ -33,7 +33,7 @@ async function request(path, options = {}) {
   try {
     return await fetch(`${API_URL}${path}`, {
       ...options,
-      credentials: 'same-origin',
+      credentials: 'include',
     });
   } catch (error) {
     throw normalizeConnectionError(error);
