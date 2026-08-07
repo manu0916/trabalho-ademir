@@ -1,4 +1,5 @@
-const API_URL = '/api';
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
+const API_URL = configuredApiUrl ? configuredApiUrl.replace(/\/$/, '') : '/api';
 let csrfToken;
 let csrfTokenRequest;
 let productsRequest;
@@ -8,7 +9,7 @@ async function parseResponse(response) {
     let message = `Erro na API (${response.status})`;
     try {
       const body = await response.json();
-      message = body.message || message;
+      message = body.message || body.detail || message;
     } catch {
       // The API can return an empty response for some requests.
     }
@@ -102,5 +103,38 @@ export async function loginAdmin(credentials) {
 export async function logoutAdmin() {
   const response = await protectedRequest('/admin/auth/logout', { method: 'POST' });
   csrfToken = undefined;
+  return parseResponse(response);
+}
+
+export async function getCustomerSession() {
+  const response = await request('/customer/auth/session');
+  if (response.status === 401 || response.status === 403) return null;
+  return parseResponse(response);
+}
+
+export async function registerCustomer(credentials) {
+  const response = await protectedRequest('/customer/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials),
+  });
+  return parseResponse(response);
+}
+
+export async function loginCustomer(credentials) {
+  const response = await protectedRequest('/customer/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials),
+  });
+  return parseResponse(response);
+}
+
+export async function createOrder(orderData) {
+  const response = await protectedRequest('/customer/orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(orderData),
+  });
   return parseResponse(response);
 }

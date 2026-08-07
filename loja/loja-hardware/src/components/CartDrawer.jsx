@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 
-export default function CartDrawer({ isOpen, onClose, cartItems, onRemoveItem }) {
+export default function CartDrawer({ isOpen, onClose, cartItems, onRemoveItem, onCheckout }) {
   const total = cartItems.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const handleImageError = (event) => {
@@ -89,7 +89,7 @@ export default function CartDrawer({ isOpen, onClose, cartItems, onRemoveItem })
               <button
                 type="button"
                 disabled={cartItems.length === 0}
-                onClick={() => alert('Checkout ainda não está disponível.')}
+                onClick={onCheckout}
                 className="w-full cursor-pointer rounded-xl bg-sky-500 py-3 font-semibold text-black shadow-lg shadow-sky-500/20 transition-all hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-600"
               >
                 Finalizar Compra

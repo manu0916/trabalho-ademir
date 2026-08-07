@@ -1,0 +1,8 @@
+.git
+.mvn/wrapper/dists
+target
+.idea
+*.iml
+.env
+.env.*
+!.env.example

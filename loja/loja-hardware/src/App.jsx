@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import Navbar from './components/Navbar';
 import ProductGrid from './components/ProductGrid';
 import CartDrawer from './components/CartDrawer';
+import CheckoutDialog from './components/CheckoutDialog';
+import CustomerAccessModal from './components/CustomerAccessModal';
 import AdminPanel from './components/AdminPanel';
 import AdminLogin from './components/AdminLogin';
 import {
   fetchProducts,
+  getCustomerSession,
   getAdminSession,
   loginAdmin,
   logoutAdmin,
@@ -17,8 +20,10 @@ export default function App() {
   const [currentView, setCurrentView] = useState('shop');
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [products, setProducts] = useState([]);
   const [adminSession, setAdminSession] = useState(undefined);
+  const [customerSession, setCustomerSession] = useState(undefined);
   const [productsError, setProductsError] = useState('');
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -37,6 +42,7 @@ export default function App() {
         if (isActive) setIsLoadingProducts(false);
       });
     getAdminSession().then(setAdminSession).catch(() => setAdminSession(null));
+    getCustomerSession().then(setCustomerSession).catch(() => setCustomerSession(null));
 
     return () => {
       isActive = false;
@@ -94,6 +100,15 @@ export default function App() {
     }
   };
 
+  const handleCheckout = () => {
+    setIsCartOpen(false);
+    setIsCheckoutOpen(true);
+  };
+
+  const handleOrderCreated = () => {
+    setCart([]);
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-zinc-100">
       <Navbar
@@ -134,7 +149,22 @@ export default function App() {
         onClose={() => setIsCartOpen(false)}
         cartItems={cart}
         onRemoveItem={handleRemoveFromCart}
+        onCheckout={handleCheckout}
       />
+
+      <CustomerAccessModal
+        isOpen={customerSession === null}
+        onAuthenticated={setCustomerSession}
+      />
+
+      {isCheckoutOpen && (
+        <CheckoutDialog
+          isOpen={isCheckoutOpen}
+          onClose={() => setIsCheckoutOpen(false)}
+          cartItems={cart}
+          onOrderCreated={handleOrderCreated}
+        />
+      )}
     </div>
   );
 }
