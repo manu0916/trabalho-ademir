@@ -1,5 +1,7 @@
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
-const API_URL = configuredApiUrl ? configuredApiUrl.replace(/\/$/, '') : '/api';
+const API_URL = configuredApiUrl
+  ? `${configuredApiUrl.replace(/\/$/, '')}${configuredApiUrl.endsWith('/api') ? '' : '/api'}`
+  : '/api';
 let csrfToken;
 let csrfTokenRequest;
 let productsRequest;
