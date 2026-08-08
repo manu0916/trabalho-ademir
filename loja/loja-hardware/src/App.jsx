@@ -139,7 +139,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-zinc-100">
+    <div className="min-h-screen" style={{ background: 'var(--bg-primary)', color: 'var(--text-main)', fontFamily: "'Outfit', sans-serif" }}>
       <Navbar
         storeName={storeName}
         cartCount={cart.reduce((total, item) => total + item.quantity, 0)}
@@ -153,14 +153,24 @@ export default function App() {
       <main className="py-6">
         {currentView === 'shop' ? (
           isLoadingProducts ? (
-            <p className="py-12 text-center text-sm text-zinc-400">Carregando produtos...</p>
+            <div className="flex flex-col items-center justify-center py-32 gap-3">
+              <div
+                className="h-10 w-10 rounded-full border-2 border-t-transparent animate-spin"
+                style={{ borderColor: 'rgba(99,102,241,0.4)', borderTopColor: '#6366f1' }}
+              />
+              <p className="text-sm" style={{ color: 'var(--text-dim)' }}>Carregando produtos...</p>
+            </div>
           ) : productsError ? (
-            <p className="py-12 text-center text-sm text-red-400" role="alert">{productsError}</p>
+            <div className="flex flex-col items-center justify-center py-32 gap-3">
+              <p className="text-sm" role="alert" style={{ color: '#f87171' }}>{productsError}</p>
+            </div>
           ) : (
             <ProductGrid products={filteredProducts} onAddToCart={handleAddToCart} />
           )
         ) : adminSession === undefined ? (
-          <p className="py-12 text-center text-sm text-zinc-400">Verificando acesso...</p>
+          <div className="flex items-center justify-center py-32">
+            <p className="text-sm" style={{ color: 'var(--text-dim)' }}>Verificando acesso...</p>
+          </div>
         ) : adminSession ? (
           <AdminPanel
             currentStoreName={storeName}
