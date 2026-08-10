@@ -91,8 +91,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/payments/mercado-pago/webhook").permitAll()
                         .requestMatchers("/api/customer/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PATCH, "/api/products/**").hasRole("ADMIN")
+                        // ProductController verifies the signed, short-lived administrator token
+                        // from the JSON payload. This avoids depending on the authentication
+                        // context surviving Vercel's external rewrite.
+                        .requestMatchers(HttpMethod.POST, "/api/products/**").permitAll()
+                        .requestMatchers(HttpMethod.PATCH, "/api/products/**").permitAll()
                         .anyRequest().denyAll())
                 .addFilterBefore(apiRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 // Do not make this filter a servlet @Component. Registering it both as a servlet

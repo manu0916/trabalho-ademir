@@ -51,11 +51,12 @@ class HardwareApplicationTests {
     }
 
     @Test
-    void productCreationIsDeniedWithoutAnAuthenticatedAdminSession() throws Exception {
+    void productCreationIsDeniedWithoutASignedAdministratorToken() throws Exception {
         mockMvc.perform(post("/api/products")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"GPU\",\"category\":\"GPU\",\"price\":100,\"imageUrl\":\"https://example.com/gpu.png\"}"))
-                .andExpect(status().isUnauthorized());
+                .content("{\"name\":\"GPU\",\"category\":\"GPU\",\"price\":100,"
+                        + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/gpu.png\"}"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -87,6 +88,26 @@ class HardwareApplicationTests {
                                 + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/product.png\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.name").value("Produto administrativo"));
+    }
+
+    @Test
+    void productCreationAcceptsTheSignedTokenFromTheJsonBody() throws Exception {
+        MvcResult loginResult = mockMvc.perform(post("/api/admin/auth/login")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@example.test\",\"password\":\"password1234\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String accessToken = JsonMapper.shared().readTree(loginResult.getResponse().getContentAsString())
+                .path("accessToken").asText();
+        mockMvc.perform(post("/api/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Produto pelo corpo\",\"category\":\"Teste\",\"price\":10,"
+                                + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/body.png\","
+                                + "\"adminAccessToken\":\"" + accessToken + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Produto pelo corpo"));
     }
 
     @Test

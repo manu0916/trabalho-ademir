@@ -113,13 +113,16 @@ export async function fetchProducts() {
 }
 
 export async function saveProduct(productData) {
-  // Product writes are authenticated by the administrator session on the server.
-  // They are deliberately excluded from CSRF because Vercel's reverse proxy can
-  // rotate the browser cookie independently of the proxied request.
+  // Product writes require the current signed administrator token. They are
+  // deliberately excluded from CSRF because Vercel's reverse proxy can rotate
+  // the browser cookie independently of the proxied request.
   const response = await adminRequest('/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(productData),
+    // Vercel rewrites can alter the security context associated with headers.
+    // The signed token is also sent in the JSON body and validated by the
+    // product endpoint before any write is made.
+    body: JSON.stringify({ ...productData, adminAccessToken }),
   });
   return parseResponse(response);
 }
@@ -128,7 +131,7 @@ export async function updateProductStock(productId, stockQuantity) {
   const response = await adminRequest(`/products/${productId}/stock`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stockQuantity }),
+    body: JSON.stringify({ stockQuantity, adminAccessToken }),
   });
   return parseResponse(response);
 }
