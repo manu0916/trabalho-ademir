@@ -84,6 +84,9 @@ public class SecurityConfig {
                         .clearAuthentication(true))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/api/**").permitAll()
+                        // Spring's internal error dispatch must remain reachable; public error
+                        // details are already disabled in application.properties.
+                        .requestMatchers("/error").permitAll()
                         // Match this endpoint from the raw servlet URI before any MVC matcher can
                         // claim it. AdminBearerAuthenticationFilter already blocks every mutating
                         // method unless its signed Bearer is valid.
