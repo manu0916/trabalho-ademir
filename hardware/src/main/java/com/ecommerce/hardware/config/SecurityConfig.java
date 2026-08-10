@@ -20,8 +20,8 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
@@ -37,7 +37,6 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    SecurityProperties securityProperties,
-                                                   ApiRateLimitFilter apiRateLimitFilter,
                                                    AdminAccessTokenService adminAccessTokenService,
                                                    SecurityContextRepository securityContextRepository,
                                                    CsrfTokenRepository csrfTokenRepository) throws Exception {
@@ -47,9 +46,8 @@ public class SecurityConfig {
                         // Spring Security's SPA support accepts the raw value sent from the XSRF cookie.
                         .spa()
                         .csrfTokenRepository(csrfTokenRepository)
-                        // The gateway cannot carry a browser CSRF cookie. Its payload is verified server-to-server.
-                        // Product writes stay protected by the ADMIN role and the strict CORS allowlist.
-                        // They do not depend on a proxy-forwarded CSRF header.
+                        // Product writes authenticate with a signed Bearer token and therefore do
+                        // not rely on a browser CSRF cookie crossing the Vercel rewrite.
                         .ignoringRequestMatchers("/api/payments/mercado-pago/webhook", "/api/products/**"))
                 .securityContext(context -> context
                         .securityContextRepository(securityContextRepository)
@@ -85,24 +83,26 @@ public class SecurityConfig {
                         .clearAuthentication(true))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/api/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/admin/auth/csrf").permitAll()
+                        // Anonymous checks return 204 instead of polluting the browser console with
+                        // an expected 401. The controller only issues a token to ROLE_ADMIN.
+                        .requestMatchers(HttpMethod.GET, "/api/admin/auth/session").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/admin/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/payments/mercado-pago/webhook").permitAll()
                         .requestMatchers("/api/customer/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        // ProductController verifies the signed, short-lived administrator token
-                        // from the JSON payload. This avoids depending on the authentication
-                        // context surviving Vercel's external rewrite.
-                        .requestMatchers(HttpMethod.POST, "/api/products/**").permitAll()
-                        .requestMatchers(HttpMethod.PATCH, "/api/products/**").permitAll()
+                        // Writes require the explicit Bearer authority. A cookie-only admin
+                        // session cannot bypass CSRF on these endpoints.
+                        .requestMatchers(HttpMethod.POST, "/api/products/**").hasAuthority("ROLE_ADMIN_BEARER")
+                        .requestMatchers(HttpMethod.PATCH, "/api/products/**").hasAuthority("ROLE_ADMIN_BEARER")
                         .anyRequest().denyAll())
-                .addFilterBefore(apiRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
-                // Do not make this filter a servlet @Component. Registering it both as a servlet
-                // filter and in Spring Security can mark it as already filtered before the
-                // SecurityContext is loaded, losing the bearer identity on production requests.
-                .addFilterBefore(new AdminBearerAuthenticationFilter(adminAccessTokenService),
-                        UsernamePasswordAuthenticationFilter.class);
+                .addFilterAfter(new ApiRateLimitFilter(securityProperties), SecurityContextHolderFilter.class)
+                // Run after the session context is loaded and before anonymous/authorization.
+                // The filter is deliberately not a servlet @Component, preventing double execution.
+                .addFilterAfter(new AdminBearerAuthenticationFilter(adminAccessTokenService),
+                        ApiRateLimitFilter.class);
 
         if (securityProperties.isEnforceHttps()) {
             http.requiresChannel(channel -> channel.anyRequest().requiresSecure());

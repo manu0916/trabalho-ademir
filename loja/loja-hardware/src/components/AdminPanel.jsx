@@ -10,6 +10,7 @@ export default function AdminPanel({ currentStoreName, onUpdateStoreName, onAddP
   const [storeNameInput, setStoreNameInput] = useState(currentStoreName);
   const [stockDrafts, setStockDrafts] = useState({});
   const [updatingProductId, setUpdatingProductId] = useState(null);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
 
   const handleProductSubmit = async (event) => {
     event.preventDefault();
@@ -17,10 +18,16 @@ export default function AdminPanel({ currentStoreName, onUpdateStoreName, onAddP
     if (!imageUrl.startsWith('https://')) return alert('A URL da imagem deve usar HTTPS.');
     const quantity = Number(stockQuantity);
     if (!Number.isInteger(quantity) || quantity < 0) return alert('O estoque deve ser um número inteiro igual ou maior que zero.');
+    if (isSavingProduct) return;
+    setIsSavingProduct(true);
     try {
       await onAddProduct({ name, description, price: parseFloat(price), stockQuantity: quantity, category: theme.category, imageUrl });
       setName(''); setDescription(''); setPrice(''); setStockQuantity('0'); setImageUrl('');
-    } catch (error) { alert(error.message || 'Não foi possível salvar o produto.'); }
+    } catch (error) {
+      alert(error.message || 'Não foi possível salvar o produto.');
+    } finally {
+      setIsSavingProduct(false);
+    }
   };
 
   const handleStoreNameSubmit = (event) => { event.preventDefault(); if (storeNameInput.trim()) onUpdateStoreName(storeNameInput.trim()); };
@@ -47,7 +54,7 @@ export default function AdminPanel({ currentStoreName, onUpdateStoreName, onAddP
 
       <section className="admin-card rounded-2xl p-6"><h2 className="mb-4 text-lg font-bold text-[var(--text)]">Nome da loja</h2><form onSubmit={handleStoreNameSubmit} className="flex flex-col gap-3 sm:flex-row sm:items-end"><Field label="Nome exibido"><input value={storeNameInput} onChange={(event) => setStoreNameInput(event.target.value)} className={inputClass} /></Field><button type="submit" className="admin-primary cursor-pointer rounded-xl px-5 py-2.5 text-sm font-semibold">Salvar nome</button></form></section>
 
-      <section className="admin-card rounded-2xl p-6"><div className="mb-4"><p className="section-kicker">Novo item</p><h2 className="text-lg font-bold text-[var(--text)]">Adicionar produto</h2><p className="mt-1 text-sm text-[var(--muted)]">O produto será incluído automaticamente na coleção {theme.category}. Sem precisar escolher tipo de produto.</p></div><form onSubmit={handleProductSubmit} className="space-y-4"><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Nome do produto"><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex: Produto especial" className={inputClass} /></Field><Field label="Preço (R$)"><input required type="number" min="0.01" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Ex: 89.90" className={inputClass} /></Field><Field label="Quantidade em estoque"><input required type="number" min="0" step="1" value={stockQuantity} onChange={(event) => setStockQuantity(event.target.value)} className={inputClass} /></Field><Field label="URL da imagem"><input required type="url" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="https://..." className={inputClass} /></Field></div><Field label="Descrição curta"><textarea rows="3" value={description} onChange={(event) => setDescription(event.target.value)} className={inputClass} /></Field><button type="submit" className="admin-primary w-full cursor-pointer rounded-xl py-3 text-sm font-semibold">Cadastrar produto</button></form></section>
+      <section className="admin-card rounded-2xl p-6"><div className="mb-4"><p className="section-kicker">Novo item</p><h2 className="text-lg font-bold text-[var(--text)]">Adicionar produto</h2><p className="mt-1 text-sm text-[var(--muted)]">O produto será incluído automaticamente na coleção {theme.category}. Sem precisar escolher tipo de produto.</p></div><form onSubmit={handleProductSubmit} className="space-y-4"><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Nome do produto"><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex: Produto especial" className={inputClass} /></Field><Field label="Preço (R$)"><input required type="number" min="0.01" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Ex: 89.90" className={inputClass} /></Field><Field label="Quantidade em estoque"><input required type="number" min="0" step="1" value={stockQuantity} onChange={(event) => setStockQuantity(event.target.value)} className={inputClass} /></Field><Field label="URL da imagem"><input required type="url" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="https://..." className={inputClass} /></Field></div><Field label="Descrição curta"><textarea rows="3" value={description} onChange={(event) => setDescription(event.target.value)} className={inputClass} /></Field><button type="submit" disabled={isSavingProduct} className="admin-primary w-full cursor-pointer rounded-xl py-3 text-sm font-semibold disabled:cursor-wait disabled:opacity-60">{isSavingProduct ? 'Salvando produto...' : 'Cadastrar produto'}</button></form></section>
 
       <section className="admin-card rounded-2xl p-6"><h2 className="text-lg font-bold text-[var(--text)]">Controle de estoque</h2><p className="mt-1 text-sm text-[var(--muted)]">Ajuste a quantidade disponível. Uma venda confirmada reduz o saldo automaticamente.</p><div className="mt-5 space-y-3">{(dashboard?.inventory ?? []).map((product) => <div key={product.id} className="stock-row flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="truncate font-semibold text-[var(--text)]">{product.name}</p><p className="text-xs text-[var(--muted)]">R$ {Number(product.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p></div><input type="number" min="0" step="1" aria-label={`Estoque de ${product.name}`} value={stockDrafts[product.id] ?? product.stockQuantity} onChange={(event) => setStockDrafts((previous) => ({ ...previous, [product.id]: event.target.value }))} className={`${inputClass} sm:w-28`} /><button type="button" disabled={updatingProductId === product.id} onClick={() => handleStockUpdate(product)} className="stock-save cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-50">{updatingProductId === product.id ? 'Salvando...' : 'Salvar'}</button></div>)}{dashboard && dashboard.inventory.length === 0 && <p className="empty-state py-6 text-center text-sm">Ainda não há produtos cadastrados.</p>}</div></section>
 

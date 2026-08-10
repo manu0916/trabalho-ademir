@@ -20,6 +20,10 @@ import {
   updateProductStock,
 } from './services/api';
 
+function isAdminAuthenticationError(error) {
+  return error?.status === 401 || error?.status === 403;
+}
+
 export default function App() {
   const [themeId, setThemeId] = useState(() => localStorage.getItem('store-theme') || 'hardware');
   const [storeName, setStoreName] = useState(() => localStorage.getItem('store-name') || STORE_THEMES.hardware.name);
@@ -74,8 +78,20 @@ export default function App() {
       .finally(() => {
         if (isActive) setIsLoadingProducts(false);
       });
-    getAdminSession().then(setAdminSession).catch(() => setAdminSession(null));
-    getCustomerSession().then(setCustomerSession).catch(() => setCustomerSession(null));
+    getAdminSession()
+      .then((session) => {
+        if (isActive) setAdminSession(session);
+      })
+      .catch(() => {
+        if (isActive) setAdminSession(null);
+      });
+    getCustomerSession()
+      .then((session) => {
+        if (isActive) setCustomerSession(session);
+      })
+      .catch(() => {
+        if (isActive) setCustomerSession(null);
+      });
 
     return () => {
       isActive = false;
@@ -84,7 +100,20 @@ export default function App() {
 
   useEffect(() => {
     if (!adminSession || currentView !== 'admin') return;
-    fetchAdminDashboard().then(setDashboard).catch(() => setDashboard(null));
+    let isActive = true;
+    fetchAdminDashboard()
+      .then((nextDashboard) => {
+        if (isActive) setDashboard(nextDashboard);
+      })
+      .catch((error) => {
+        if (!isActive) return;
+        setDashboard(null);
+        if (isAdminAuthenticationError(error)) setAdminSession(null);
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, [adminSession, currentView]);
 
   const filteredProducts = useMemo(() => {
@@ -109,7 +138,7 @@ export default function App() {
       }));
       alert('Produto salvo com sucesso no banco de dados.');
     } catch (error) {
-      if (error.status === 401) setAdminSession(null);
+      if (isAdminAuthenticationError(error)) setAdminSession(null);
       throw error;
     }
   };
@@ -123,7 +152,7 @@ export default function App() {
         inventory: previous.inventory.map((product) => product.id === saved.id ? saved : product),
       }));
     } catch (error) {
-      if (error.status === 401) setAdminSession(null);
+      if (isAdminAuthenticationError(error)) setAdminSession(null);
       throw error;
     }
   };

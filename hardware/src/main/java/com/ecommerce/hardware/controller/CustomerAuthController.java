@@ -2,6 +2,7 @@ package com.ecommerce.hardware.controller;
 
 import com.ecommerce.hardware.model.CustomerAccount;
 import com.ecommerce.hardware.repository.CustomerAccountRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import java.util.Locale;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -62,12 +63,16 @@ public class CustomerAuthController {
     }
 
     @GetMapping("/session")
-    public CustomerSessionResponse session(HttpSession session) {
+    public ResponseEntity<CustomerSessionResponse> session(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return ResponseEntity.noContent().build();
+        }
         String username = (String) session.getAttribute(CUSTOMER_USERNAME_SESSION_KEY);
         if (username == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Faça login para continuar.");
+            return ResponseEntity.noContent().build();
         }
-        return new CustomerSessionResponse(username);
+        return ResponseEntity.ok(new CustomerSessionResponse(username));
     }
 
     @PostMapping("/logout")

@@ -34,14 +34,16 @@ public class AdminBearerAuthenticationFilter extends OncePerRequestFilter {
         String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
             String token = authorization.substring(7).trim();
-            accessTokenService.validate(token).ifPresentOrElse(email -> {
+            accessTokenService.validate(token).ifPresent(email -> {
                 UsernamePasswordAuthenticationToken authentication =
                         UsernamePasswordAuthenticationToken.authenticated(email, null,
-                                List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+                                List.of(
+                                        new SimpleGrantedAuthority("ROLE_ADMIN"),
+                                        new SimpleGrantedAuthority("ROLE_ADMIN_BEARER")));
                 SecurityContext context = SecurityContextHolder.createEmptyContext();
                 context.setAuthentication(authentication);
                 SecurityContextHolder.setContext(context);
-            }, SecurityContextHolder::clearContext);
+            });
         }
         filterChain.doFilter(request, response);
     }

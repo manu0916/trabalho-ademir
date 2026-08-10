@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -45,6 +46,7 @@ class HardwareApplicationTests {
     void publicProductsRemainReadableWithSecurityHeaders() throws Exception {
         mockMvc.perform(get("/api/products"))
                 .andExpect(status().isOk())
+                .andExpect(header().string("X-Nexus-Backend-Commit", "local"))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andExpect(header().string("Content-Security-Policy",
                         "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"));
@@ -56,7 +58,7 @@ class HardwareApplicationTests {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"GPU\",\"category\":\"GPU\",\"price\":100,"
                         + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/gpu.png\"}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -91,7 +93,28 @@ class HardwareApplicationTests {
     }
 
     @Test
-    void productCreationAcceptsTheSignedTokenFromTheJsonBody() throws Exception {
+    void authenticatedAdminCanUpdateProductStock() throws Exception {
+        Product product = productRepository.save(new Product(null, "Estoque", "Teste", new BigDecimal("10.00"),
+                "https://example.com/stock.png", "Produto de estoque"));
+        MvcResult loginResult = mockMvc.perform(post("/api/admin/auth/login")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@example.test\",\"password\":\"password1234\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String accessToken = JsonMapper.shared().readTree(loginResult.getResponse().getContentAsString())
+                .path("accessToken").asText();
+        mockMvc.perform(patch("/api/products/{id}/stock", product.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"stockQuantity\":7}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stockQuantity").value(7));
+    }
+
+    @Test
+    void productCreationDoesNotAcceptATokenOnlyFromTheJsonBody() throws Exception {
         MvcResult loginResult = mockMvc.perform(post("/api/admin/auth/login")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -106,8 +129,42 @@ class HardwareApplicationTests {
                         .content("{\"name\":\"Produto pelo corpo\",\"category\":\"Teste\",\"price\":10,"
                                 + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/body.png\","
                                 + "\"adminAccessToken\":\"" + accessToken + "\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.name").value("Produto pelo corpo"));
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void cookieSessionAloneCannotWriteProducts() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        mockMvc.perform(post("/api/admin/auth/login")
+                        .with(csrf())
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@example.test\",\"password\":\"password1234\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/products")
+                        .with(csrf())
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Produto sem bearer\",\"category\":\"Teste\",\"price\":10,"
+                                + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/session.png\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void anonymousSessionChecksAreQuiet() throws Exception {
+        mockMvc.perform(get("/api/admin/auth/session"))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/customer/auth/session"))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void healthEndpointIdentifiesTheRunningBuild() throws Exception {
+        mockMvc.perform(get("/api/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ok"))
+                .andExpect(jsonPath("$.commit").value("local"));
     }
 
     @Test

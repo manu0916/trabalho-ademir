@@ -1,15 +1,76 @@
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
-// Vercel forwards /api to the backend. Keeping production requests same-origin
-// lets the browser safely read the non-HttpOnly XSRF cookie.
+
+// In production Vercel proxies /api to Render. Keeping browser requests
+// same-origin preserves cookies and Authorization without relying on CORS.
 const API_URL = import.meta.env.PROD
   ? '/api'
   : configuredApiUrl
-  ? `${configuredApiUrl.replace(/\/$/, '')}${configuredApiUrl.endsWith('/api') ? '' : '/api'}`
-  : '/api';
+    ? `${configuredApiUrl.replace(/\/$/, '')}${configuredApiUrl.endsWith('/api') ? '' : '/api'}`
+    : '/api';
+
+const ADMIN_SESSION_STORAGE_KEY = 'nexus-admin-session-v1';
+const ADMIN_TOKEN_PATTERN = /^[A-Za-z0-9_-]+\.[0-9]+\.[A-Za-z0-9_-]+$/;
+
 let csrfToken;
 let csrfTokenRequest;
 let productsRequest;
 let adminAccessToken;
+let adminAccessTokenExpiresAt = 0;
+
+function sessionExpiredError() {
+  const error = new Error('Sua sess\u00e3o administrativa expirou. Entre novamente para continuar.');
+  error.status = 401;
+  return error;
+}
+
+function clearAdminAccessToken() {
+  adminAccessToken = undefined;
+  adminAccessTokenExpiresAt = 0;
+  try {
+    sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
+  } catch {
+    // Storage can be unavailable in privacy modes; memory remains usable.
+  }
+}
+
+function storeAdminAccessToken(session) {
+  const token = session?.accessToken;
+  const expiresAt = Number(session?.expiresAtEpochSeconds);
+  const email = typeof session?.email === 'string' ? session.email : '';
+
+  if (typeof token !== 'string'
+      || !ADMIN_TOKEN_PATTERN.test(token)
+      || !Number.isFinite(expiresAt)
+      || expiresAt <= Math.floor(Date.now() / 1000) + 5) {
+    clearAdminAccessToken();
+    return false;
+  }
+
+  adminAccessToken = token;
+  adminAccessTokenExpiresAt = expiresAt;
+  try {
+    sessionStorage.setItem(ADMIN_SESSION_STORAGE_KEY, JSON.stringify({ accessToken: token, expiresAtEpochSeconds: expiresAt, email }));
+  } catch {
+    // The request can continue with the in-memory token.
+  }
+  return true;
+}
+
+function restoreAdminAccessToken() {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(ADMIN_SESSION_STORAGE_KEY) || 'null');
+    if (stored) storeAdminAccessToken(stored);
+  } catch {
+    clearAdminAccessToken();
+  }
+}
+
+function hasUsableAdminAccessToken() {
+  return Boolean(adminAccessToken)
+    && adminAccessTokenExpiresAt > Math.floor(Date.now() / 1000) + 5;
+}
+
+restoreAdminAccessToken();
 
 async function parseResponse(response) {
   if (!response.ok) {
@@ -18,7 +79,7 @@ async function parseResponse(response) {
       const body = await response.json();
       message = body.message || body.detail || message;
     } catch {
-      // The API can return an empty response for some requests.
+      // Some endpoints intentionally return an empty response.
     }
     const error = new Error(message);
     error.status = response.status;
@@ -31,32 +92,52 @@ async function parseResponse(response) {
 
 function normalizeConnectionError(error) {
   if (error instanceof TypeError || error?.message?.toLowerCase().includes('failed to fetch')) {
-    return new Error('Falha de conexão: não foi possível alcançar o backend.');
+    return new Error('Falha de conex\u00e3o: n\u00e3o foi poss\u00edvel alcan\u00e7ar o backend.');
   }
   return error;
 }
 
 async function request(path, options = {}) {
   try {
-    return await fetch(`${API_URL}${path}`, {
-      ...options,
-      credentials: 'include',
-    });
+    return await fetch(`${API_URL}${path}`, { ...options, credentials: 'include' });
   } catch (error) {
     throw normalizeConnectionError(error);
   }
 }
 
-async function adminRequest(path, options = {}) {
-  if (!adminAccessToken) {
-    const error = new Error('Sua sess\u00e3o administrativa expirou. Entre novamente para continuar.');
-    error.status = 401;
-    throw error;
-  }
-
+function adminHeaders(options = {}) {
   const headers = new Headers(options.headers);
-  headers.set('Authorization', `Bearer ${adminAccessToken}`);
-  return request(path, { ...options, headers });
+  if (hasUsableAdminAccessToken()) headers.set('Authorization', `Bearer ${adminAccessToken}`);
+  return headers;
+}
+
+async function refreshAdminAccessTokenFromSession() {
+  const response = await request('/admin/auth/session');
+  if (response.status === 204 || response.status === 401 || response.status === 403) {
+    clearAdminAccessToken();
+    return null;
+  }
+  const session = await parseResponse(response);
+  return storeAdminAccessToken(session) ? session : null;
+}
+
+async function adminRequest(path, options = {}) {
+  if (!hasUsableAdminAccessToken()) await refreshAdminAccessTokenFromSession();
+  if (!hasUsableAdminAccessToken()) throw sessionExpiredError();
+
+  const send = () => request(path, { ...options, headers: adminHeaders(options) });
+  let response = await send();
+  if (response.status !== 401 && response.status !== 403) return response;
+
+  // A restart can invalidate the HTTP session. Refresh once and retry; if it
+  // still fails, the UI returns to login instead of leaving a broken panel.
+  clearAdminAccessToken();
+  const refreshed = await refreshAdminAccessTokenFromSession();
+  if (!refreshed) throw sessionExpiredError();
+
+  response = await send();
+  if (response.status === 401 || response.status === 403) clearAdminAccessToken();
+  return response;
 }
 
 function readCookie(name) {
@@ -74,7 +155,7 @@ async function getCsrfToken() {
     .then(() => {
       csrfToken = readCookie('XSRF-TOKEN');
       if (!csrfToken) {
-        throw new Error('Não foi possível preparar a proteção de segurança da sessão. Atualize a página e tente novamente.');
+        throw new Error('N\u00e3o foi poss\u00edvel preparar a prote\u00e7\u00e3o da sess\u00e3o. Atualize a p\u00e1gina e tente novamente.');
       }
       return csrfToken;
     });
@@ -95,9 +176,6 @@ async function protectedRequest(path, options = {}) {
 
   let response = await send();
   if (response.status !== 403) return response;
-
-  // A login, logout, or reverse-proxy cookie update can invalidate the token
-  // between requests. Refresh it once before surfacing an access error.
   csrfToken = undefined;
   response = await send();
   return response;
@@ -113,16 +191,10 @@ export async function fetchProducts() {
 }
 
 export async function saveProduct(productData) {
-  // Product writes require the current signed administrator token. They are
-  // deliberately excluded from CSRF because Vercel's reverse proxy can rotate
-  // the browser cookie independently of the proxied request.
   const response = await adminRequest('/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    // Vercel rewrites can alter the security context associated with headers.
-    // The signed token is also sent in the JSON body and validated by the
-    // product endpoint before any write is made.
-    body: JSON.stringify({ ...productData, adminAccessToken }),
+    body: JSON.stringify(productData),
   });
   return parseResponse(response);
 }
@@ -131,7 +203,7 @@ export async function updateProductStock(productId, stockQuantity) {
   const response = await adminRequest(`/products/${productId}/stock`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stockQuantity, adminAccessToken }),
+    body: JSON.stringify({ stockQuantity }),
   });
   return parseResponse(response);
 }
@@ -142,30 +214,29 @@ export async function fetchAdminDashboard() {
 }
 
 export async function getAdminSession() {
-  // This is intentionally a plain request: after a browser refresh the
-  // short-lived token only held in memory no longer exists. The server checks
-  // the existing session and returns a fresh token when it is still valid.
-  const response = await request('/admin/auth/session');
-  if (response.status === 401 || response.status === 403) {
-    adminAccessToken = undefined;
-    return null;
+  if (hasUsableAdminAccessToken()) {
+    const response = await request('/admin/auth/session', { headers: adminHeaders() });
+    if (response.ok && response.status !== 204) {
+      const session = await parseResponse(response);
+      if (storeAdminAccessToken(session)) return session;
+    }
+    clearAdminAccessToken();
   }
-  const session = await parseResponse(response);
-  adminAccessToken = session.accessToken || undefined;
-  return adminAccessToken ? session : null;
+  return refreshAdminAccessTokenFromSession();
 }
 
 export async function loginAdmin(credentials) {
-  adminAccessToken = undefined;
+  clearAdminAccessToken();
   const response = await protectedRequest('/admin/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(credentials),
   });
   const session = await parseResponse(response);
-  adminAccessToken = session.accessToken || undefined;
+  if (!storeAdminAccessToken(session)) {
+    throw new Error('O servidor n\u00e3o confirmou uma sess\u00e3o administrativa v\u00e1lida. Entre novamente.');
+  }
   csrfToken = undefined;
-  await getCsrfToken();
   return session;
 }
 
@@ -173,18 +244,18 @@ export async function logoutAdmin() {
   try {
     const response = await protectedRequest('/admin/auth/logout', {
       method: 'POST',
-      headers: adminAccessToken ? { Authorization: `Bearer ${adminAccessToken}` } : undefined,
+      headers: adminHeaders(),
     });
     return parseResponse(response);
   } finally {
-    adminAccessToken = undefined;
+    clearAdminAccessToken();
     csrfToken = undefined;
   }
 }
 
 export async function getCustomerSession() {
   const response = await request('/customer/auth/session');
-  if (response.status === 401 || response.status === 403) return null;
+  if (response.status === 204 || response.status === 401 || response.status === 403) return null;
   return parseResponse(response);
 }
 
