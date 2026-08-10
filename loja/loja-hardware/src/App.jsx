@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import Navbar from './components/Navbar';
 import ProductGrid from './components/ProductGrid';
 import CartDrawer from './components/CartDrawer';
@@ -8,6 +8,7 @@ import CustomerAccessModal from './components/CustomerAccessModal';
 import AdminPanel from './components/AdminPanel';
 import AdminLogin from './components/AdminLogin';
 import StoreHero from './components/StoreHero';
+import BrandFooter from './components/BrandFooter';
 import { STORE_THEMES } from './themes';
 import {
   fetchProducts,
@@ -44,6 +45,11 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem('store-theme', theme.id); }, [theme.id]);
   useEffect(() => () => window.clearTimeout(themeTransitionTimer.current), []);
+  useEffect(() => {
+    document.title = `${storeName} — ${theme.category}`;
+    document.documentElement.style.colorScheme = theme.id === 'hardware' ? 'dark' : 'light';
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.themeColor);
+  }, [storeName, theme.category, theme.id, theme.themeColor]);
 
   const handleThemeChange = (nextThemeId) => {
     const nextTheme = STORE_THEMES[nextThemeId];
@@ -198,7 +204,9 @@ export default function App() {
   };
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="app-shell min-h-screen" data-theme={theme.id}>
+      <a href="#main-content" className="skip-link">Pular para o conteúdo</a>
       <AnimatePresence>
         {themeTransition && (
           <motion.div
@@ -222,17 +230,27 @@ export default function App() {
         onSearchChange={setSearchQuery}
       />
 
-      <main className={currentView === 'shop' ? '' : 'py-6'}>
+      <main id="main-content" className={currentView === 'shop' ? 'shop-main' : 'admin-main py-6'}>
         {currentView === 'shop' ? (
           <>
             <StoreHero theme={theme} onExplore={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })} />
             {isLoadingProducts ? (
-              <p className="py-12 text-center text-sm text-[var(--muted)]">Carregando produtos...</p>
+              <section className="store-state mx-auto max-w-7xl px-5 py-20 sm:px-8" aria-live="polite">
+                <p className="section-kicker">Preparando a curadoria</p>
+                <div className="store-state-grid mt-7" aria-hidden="true">
+                  {[0, 1, 2].map((item) => <span key={item} className="store-state-card" />)}
+                </div>
+                <span className="sr-only">Carregando produtos...</span>
+              </section>
             ) : productsError ? (
-              <p className="py-12 text-center text-sm text-rose-500" role="alert">{productsError}</p>
+              <section className="store-state mx-auto max-w-7xl px-5 py-20 text-center sm:px-8" role="alert">
+                <p className="section-kicker">A vitrine fez uma pausa</p>
+                <p className="mt-3 text-sm text-rose-500">{productsError}</p>
+              </section>
             ) : (
               <ProductGrid products={filteredProducts} onAddToCart={handleAddToCart} theme={theme} />
             )}
+            <BrandFooter storeName={storeName} theme={theme} />
           </>
         ) : adminSession === undefined ? (
           <p className="py-12 text-center text-sm text-zinc-400">Verificando acesso...</p>
@@ -277,5 +295,6 @@ export default function App() {
         />
       )}
     </div>
+    </MotionConfig>
   );
 }
