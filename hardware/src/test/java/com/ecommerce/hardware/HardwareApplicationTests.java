@@ -13,6 +13,7 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -51,6 +52,17 @@ class HardwareApplicationTests {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"GPU\",\"category\":\"GPU\",\"price\":100,\"imageUrl\":\"https://example.com/gpu.png\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void vercelPreviewDeploymentsCanReachTheApi() throws Exception {
+        String previewOrigin = "https://trabalho-ademir-dur49mh1w-manu0916s-projects.vercel.app";
+
+        mockMvc.perform(options("/api/products")
+                        .header("Origin", previewOrigin)
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", previewOrigin));
     }
 
     @Test
