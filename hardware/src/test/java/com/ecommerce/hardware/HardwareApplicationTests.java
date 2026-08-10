@@ -48,9 +48,9 @@ class HardwareApplicationTests {
     @Test
     void productCreationIsDeniedWithoutAnAuthenticatedAdminSession() throws Exception {
         mockMvc.perform(post("/api/products")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"GPU\",\"category\":\"GPU\",\"price\":100,\"imageUrl\":\"https://example.com/gpu.png\"}"))
-                .andExpect(status().isForbidden());
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"GPU\",\"category\":\"GPU\",\"price\":100,\"imageUrl\":\"https://example.com/gpu.png\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

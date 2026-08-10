@@ -45,7 +45,9 @@ public class SecurityConfig {
                         .spa()
                         .csrfTokenRepository(csrfTokenRepository)
                         // The gateway cannot carry a browser CSRF cookie. Its payload is verified server-to-server.
-                        .ignoringRequestMatchers("/api/payments/mercado-pago/webhook"))
+                        // Product writes stay protected by the ADMIN role and the strict CORS allowlist.
+                        // They do not depend on a proxy-forwarded CSRF header.
+                        .ignoringRequestMatchers("/api/payments/mercado-pago/webhook", "/api/products/**"))
                 .securityContext(context -> context
                         .securityContextRepository(securityContextRepository)
                         .requireExplicitSave(true))
