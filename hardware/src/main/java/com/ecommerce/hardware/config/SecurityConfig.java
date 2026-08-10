@@ -10,7 +10,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -93,10 +95,18 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/payments/mercado-pago/webhook").permitAll()
                         .requestMatchers("/api/customer/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        // Writes require the explicit Bearer authority. A cookie-only admin
-                        // session cannot bypass CSRF on these endpoints.
-                        .requestMatchers(HttpMethod.POST, "/api/products/**").hasAuthority("ROLE_ADMIN_BEARER")
-                        .requestMatchers(HttpMethod.PATCH, "/api/products/**").hasAuthority("ROLE_ADMIN_BEARER")
+                        // Validate the signed proof on the write request itself. This keeps product
+                        // writes independent from session-cookie forwarding and from SecurityContext
+                        // replacement by a reverse proxy/container dispatch. A cookie-only admin
+                        // session still cannot bypass CSRF on these endpoints.
+                        .requestMatchers(HttpMethod.POST, "/api/products/**")
+                        .access((authentication, context) -> new AuthorizationDecision(
+                                hasValidAdminBearer(context.getRequest().getHeader(HttpHeaders.AUTHORIZATION),
+                                        adminAccessTokenService)))
+                        .requestMatchers(HttpMethod.PATCH, "/api/products/**")
+                        .access((authentication, context) -> new AuthorizationDecision(
+                                hasValidAdminBearer(context.getRequest().getHeader(HttpHeaders.AUTHORIZATION),
+                                        adminAccessTokenService)))
                         .anyRequest().denyAll())
                 .addFilterAfter(new ApiRateLimitFilter(securityProperties), SecurityContextHolderFilter.class)
                 // Run after the session context is loaded and before anonymous/authorization.
@@ -145,5 +155,13 @@ public class SecurityConfig {
         response.setStatus(status);
         response.setContentType("application/json");
         response.getWriter().write("{\"message\":\"" + message + "\"}");
+    }
+
+    private boolean hasValidAdminBearer(String authorization, AdminAccessTokenService accessTokenService) {
+        if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            return false;
+        }
+        String token = authorization.substring(7).trim();
+        return accessTokenService.validate(token).isPresent();
     }
 }

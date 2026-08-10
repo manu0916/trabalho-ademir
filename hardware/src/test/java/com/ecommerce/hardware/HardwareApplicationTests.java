@@ -93,6 +93,29 @@ class HardwareApplicationTests {
     }
 
     @Test
+    void authenticatedAdminCanCreateAProductWhenSessionCookieAndBearerAreBothPresent() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        MvcResult loginResult = mockMvc.perform(post("/api/admin/auth/login")
+                        .with(csrf())
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@example.test\",\"password\":\"password1234\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String accessToken = JsonMapper.shared().readTree(loginResult.getResponse().getContentAsString())
+                .path("accessToken").asText();
+        mockMvc.perform(post("/api/products")
+                        .session(session)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Produto com sessao e bearer\",\"category\":\"Teste\",\"price\":10,"
+                                + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/session-bearer.png\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Produto com sessao e bearer"));
+    }
+
+    @Test
     void authenticatedAdminCanUpdateProductStock() throws Exception {
         Product product = productRepository.save(new Product(null, "Estoque", "Teste", new BigDecimal("10.00"),
                 "https://example.com/stock.png", "Produto de estoque"));
