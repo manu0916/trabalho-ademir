@@ -37,9 +37,9 @@ public class SecurityConfig {
         http
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf
+                        // Spring Security's SPA support accepts the raw value sent from the XSRF cookie.
+                        .spa()
                         .csrfTokenRepository(csrfTokenRepository)
-                        // The SPA receives this token from /csrf and returns the same value in X-XSRF-TOKEN.
-                        // Keeping the browser API token unmasked makes it match the CSRF cookie used by this app.
                         // The gateway cannot carry a browser CSRF cookie. Its payload is verified server-to-server.
                         .ignoringRequestMatchers("/api/payments/mercado-pago/webhook"))
                 .securityContext(context -> context

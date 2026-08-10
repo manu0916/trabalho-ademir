@@ -1,5 +1,9 @@
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
-const API_URL = configuredApiUrl
+// Vercel forwards /api to the backend. Keeping production requests same-origin
+// lets the browser safely read the non-HttpOnly XSRF cookie.
+const API_URL = import.meta.env.PROD
+  ? '/api'
+  : configuredApiUrl
   ? `${configuredApiUrl.replace(/\/$/, '')}${configuredApiUrl.endsWith('/api') ? '' : '/api'}`
   : '/api';
 let csrfToken;
@@ -42,14 +46,23 @@ async function request(path, options = {}) {
   }
 }
 
+function readCookie(name) {
+  const prefix = `${name}=`;
+  const cookie = document.cookie.split('; ').find((entry) => entry.startsWith(prefix));
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : undefined;
+}
+
 async function getCsrfToken() {
   if (csrfToken) return csrfToken;
   if (csrfTokenRequest) return csrfTokenRequest;
 
   csrfTokenRequest = request('/admin/auth/csrf')
     .then(parseResponse)
-    .then((body) => {
-      csrfToken = body.token;
+    .then(() => {
+      csrfToken = readCookie('XSRF-TOKEN');
+      if (!csrfToken) {
+        throw new Error('Não foi possível preparar a proteção de segurança da sessão. Atualize a página e tente novamente.');
+      }
       return csrfToken;
     });
 
