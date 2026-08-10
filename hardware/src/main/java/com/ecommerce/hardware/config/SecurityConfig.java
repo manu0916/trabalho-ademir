@@ -84,8 +84,11 @@ public class SecurityConfig {
                         .clearAuthentication(true))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/api/**").permitAll()
+                        // Match this endpoint from the raw servlet URI before any MVC matcher can
+                        // claim it. AdminBearerAuthenticationFilter already blocks every mutating
+                        // method unless its signed Bearer is valid.
+                        .requestMatchers(SecurityConfig::isProductEndpoint).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/admin/auth/csrf").permitAll()
                         // Anonymous checks return 204 instead of polluting the browser console with
                         // an expected 401. The controller only issues a token to ROLE_ADMIN.
@@ -94,10 +97,6 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/payments/mercado-pago/webhook").permitAll()
                         .requestMatchers("/api/customer/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                        // AdminBearerAuthenticationFilter rejects product writes unless the signed
-                        // Bearer is valid. Once that guard succeeds there must not be a second,
-                        // proxy-sensitive authority decision for the same request.
-                        .requestMatchers(SecurityConfig::isProductWrite).permitAll()
                         .anyRequest().denyAll())
                 .addFilterAfter(new ApiRateLimitFilter(securityProperties), SecurityContextHolderFilter.class)
                 // Run after the session context is loaded and before anonymous/authorization.
@@ -148,11 +147,7 @@ public class SecurityConfig {
         response.getWriter().write("{\"message\":\"" + message + "\"}");
     }
 
-    private static boolean isProductWrite(HttpServletRequest request) {
-        String method = request.getMethod();
-        if (!("POST".equalsIgnoreCase(method) || "PATCH".equalsIgnoreCase(method))) {
-            return false;
-        }
+    private static boolean isProductEndpoint(HttpServletRequest request) {
         String path = request.getRequestURI();
         return "/api/products".equals(path) || path.startsWith("/api/products/");
     }

@@ -64,7 +64,9 @@ public class AdminBearerAuthenticationFilter extends OncePerRequestFilter {
 
     private boolean isProductWrite(HttpServletRequest request) {
         String method = request.getMethod();
-        if (!("POST".equalsIgnoreCase(method) || "PATCH".equalsIgnoreCase(method))) {
+        if ("GET".equalsIgnoreCase(method)
+                || "HEAD".equalsIgnoreCase(method)
+                || "OPTIONS".equalsIgnoreCase(method)) {
             return false;
         }
         String path = request.getRequestURI();
