@@ -1,6 +1,7 @@
 package com.ecommerce.hardware.config;
 
 import com.ecommerce.hardware.security.ApiRateLimitFilter;
+import com.ecommerce.hardware.security.AdminAccessTokenService;
 import com.ecommerce.hardware.security.AdminBearerAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -37,7 +38,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    SecurityProperties securityProperties,
                                                    ApiRateLimitFilter apiRateLimitFilter,
-                                                   AdminBearerAuthenticationFilter adminBearerAuthenticationFilter,
+                                                   AdminAccessTokenService adminAccessTokenService,
                                                    SecurityContextRepository securityContextRepository,
                                                    CsrfTokenRepository csrfTokenRepository) throws Exception {
         http
@@ -94,7 +95,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PATCH, "/api/products/**").hasRole("ADMIN")
                         .anyRequest().denyAll())
                 .addFilterBefore(apiRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(adminBearerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                // Do not make this filter a servlet @Component. Registering it both as a servlet
+                // filter and in Spring Security can mark it as already filtered before the
+                // SecurityContext is loaded, losing the bearer identity on production requests.
+                .addFilterBefore(new AdminBearerAuthenticationFilter(adminAccessTokenService),
+                        UsernamePasswordAuthenticationFilter.class);
 
         if (securityProperties.isEnforceHttps()) {
             http.requiresChannel(channel -> channel.anyRequest().requiresSecure());

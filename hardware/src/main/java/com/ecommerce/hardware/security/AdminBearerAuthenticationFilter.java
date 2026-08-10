@@ -9,14 +9,12 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
 
 /** Restores an administrator identity when a reverse proxy cannot reliably preserve a session cookie. */
-@Component
 public class AdminBearerAuthenticationFilter extends OncePerRequestFilter {
 
     private final AdminAccessTokenService accessTokenService;
