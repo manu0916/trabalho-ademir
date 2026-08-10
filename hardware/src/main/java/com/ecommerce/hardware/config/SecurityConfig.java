@@ -3,6 +3,7 @@ package com.ecommerce.hardware.config;
 import com.ecommerce.hardware.security.ApiRateLimitFilter;
 import com.ecommerce.hardware.security.AdminAccessTokenService;
 import com.ecommerce.hardware.security.AdminBearerAuthenticationFilter;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,8 +97,7 @@ public class SecurityConfig {
                         // AdminBearerAuthenticationFilter rejects product writes unless the signed
                         // Bearer is valid. Once that guard succeeds there must not be a second,
                         // proxy-sensitive authority decision for the same request.
-                        .requestMatchers(HttpMethod.POST, "/api/products/**").permitAll()
-                        .requestMatchers(HttpMethod.PATCH, "/api/products/**").permitAll()
+                        .requestMatchers(SecurityConfig::isProductWrite).permitAll()
                         .anyRequest().denyAll())
                 .addFilterAfter(new ApiRateLimitFilter(securityProperties), SecurityContextHolderFilter.class)
                 // Run after the session context is loaded and before anonymous/authorization.
@@ -146,6 +146,15 @@ public class SecurityConfig {
         response.setStatus(status);
         response.setContentType("application/json");
         response.getWriter().write("{\"message\":\"" + message + "\"}");
+    }
+
+    private static boolean isProductWrite(HttpServletRequest request) {
+        String method = request.getMethod();
+        if (!("POST".equalsIgnoreCase(method) || "PATCH".equalsIgnoreCase(method))) {
+            return false;
+        }
+        String path = request.getRequestURI();
+        return "/api/products".equals(path) || path.startsWith("/api/products/");
     }
 
 }
