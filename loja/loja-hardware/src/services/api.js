@@ -74,9 +74,20 @@ async function getCsrfToken() {
 }
 
 async function protectedRequest(path, options = {}) {
-  const headers = new Headers(options.headers);
-  headers.set('X-XSRF-TOKEN', await getCsrfToken());
-  return request(path, { ...options, headers });
+  const send = async () => {
+    const headers = new Headers(options.headers);
+    headers.set('X-XSRF-TOKEN', await getCsrfToken());
+    return request(path, { ...options, headers });
+  };
+
+  let response = await send();
+  if (response.status !== 403) return response;
+
+  // A login, logout, or reverse-proxy cookie update can invalidate the token
+  // between requests. Refresh it once before surfacing an access error.
+  csrfToken = undefined;
+  response = await send();
+  return response;
 }
 
 export async function fetchProducts() {

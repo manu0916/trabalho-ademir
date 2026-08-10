@@ -2,6 +2,8 @@ package com.ecommerce.hardware.config;
 
 import com.ecommerce.hardware.security.ApiRateLimitFilter;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -27,6 +29,8 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 @EnableWebSecurity
 @EnableConfigurationProperties({AdminProperties.class, SecurityProperties.class, MercadoPagoProperties.class})
 public class SecurityConfig {
+
+    private static final Logger LOG = LoggerFactory.getLogger(SecurityConfig.class);
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
@@ -62,8 +66,12 @@ public class SecurityConfig {
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> writeJsonError(response,
                                 HttpServletResponse.SC_UNAUTHORIZED, "Autenticacao necessaria."))
-                        .accessDeniedHandler((request, response, exception) -> writeJsonError(response,
-                                HttpServletResponse.SC_FORBIDDEN, "Acesso negado.")))
+                        .accessDeniedHandler((request, response, exception) -> {
+                            LOG.warn("Access denied: method={} path={} reason={}",
+                                    request.getMethod(), request.getRequestURI(), exception.getClass().getSimpleName());
+                            response.setHeader("X-Nexus-Access-Denied-Reason", exception.getClass().getSimpleName());
+                            writeJsonError(response, HttpServletResponse.SC_FORBIDDEN, "Acesso negado.");
+                        }))
                 .logout(logout -> logout
                         .logoutUrl("/api/admin/auth/logout")
                         .logoutSuccessHandler((request, response, authentication) -> response

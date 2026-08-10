@@ -109,7 +109,7 @@ export default function App() {
       }));
       alert('Produto salvo com sucesso no banco de dados.');
     } catch (error) {
-      if (error.status === 401 || error.status === 403) setAdminSession(null);
+      if (error.status === 401) setAdminSession(null);
       throw error;
     }
   };
@@ -123,7 +123,7 @@ export default function App() {
         inventory: previous.inventory.map((product) => product.id === saved.id ? saved : product),
       }));
     } catch (error) {
-      if (error.status === 401 || error.status === 403) setAdminSession(null);
+      if (error.status === 401) setAdminSession(null);
       throw error;
     }
   };
