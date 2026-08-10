@@ -40,7 +40,7 @@ public class ProductController {
     public ResponseEntity<ProductResponse> createProduct(@Valid @RequestBody ProductRequest request) {
         Product product = new Product();
         product.setName(request.name().trim());
-        product.setCategory(request.category());
+        product.setCategory(request.category() == null || request.category().isBlank() ? "Produto" : request.category().trim());
         product.setPrice(request.price());
         product.setStockQuantity(request.stockQuantity());
         product.setDescription(request.description() == null ? null : request.description().trim());

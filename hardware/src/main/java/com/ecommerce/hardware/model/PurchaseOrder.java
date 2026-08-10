@@ -40,6 +40,24 @@ public class PurchaseOrder {
     @Column(name = "payment_method", nullable = false, length = 30)
     private String paymentMethod;
 
+    @Column(name = "postal_code", length = 8)
+    private String postalCode;
+
+    @Column(length = 2)
+    private String state;
+
+    @Column(length = 120)
+    private String city;
+
+    @Column(length = 160)
+    private String neighborhood;
+
+    @Column(length = 180)
+    private String street;
+
+    @Column(name = "address_number", length = 20)
+    private String addressNumber;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal total;
 
@@ -69,11 +87,23 @@ public class PurchaseOrder {
 
     public PurchaseOrder(CustomerAccount customer, String fullName, String email, String cpf,
                          String paymentMethod, BigDecimal total) {
+        this(customer, fullName, email, cpf, paymentMethod, null, null, null, null, null, null, total);
+    }
+
+    public PurchaseOrder(CustomerAccount customer, String fullName, String email, String cpf, String paymentMethod,
+                         String postalCode, String state, String city, String neighborhood, String street,
+                         String addressNumber, BigDecimal total) {
         this.customer = customer;
         this.fullName = fullName;
         this.email = email;
         this.cpf = cpf;
         this.paymentMethod = paymentMethod;
+        this.postalCode = postalCode;
+        this.state = state;
+        this.city = city;
+        this.neighborhood = neighborhood;
+        this.street = street;
+        this.addressNumber = addressNumber;
         this.total = total;
     }
 
@@ -87,6 +117,12 @@ public class PurchaseOrder {
     public String getEmail() { return email; }
     public String getCpf() { return cpf; }
     public String getPaymentMethod() { return paymentMethod; }
+    public String getPostalCode() { return postalCode; }
+    public String getState() { return state; }
+    public String getCity() { return city; }
+    public String getNeighborhood() { return neighborhood; }
+    public String getStreet() { return street; }
+    public String getAddressNumber() { return addressNumber; }
     public BigDecimal getTotal() { return total; }
     public String getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }

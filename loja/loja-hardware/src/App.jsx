@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import Navbar from './components/Navbar';
 import ProductGrid from './components/ProductGrid';
 import CartDrawer from './components/CartDrawer';
@@ -6,6 +7,8 @@ import CheckoutDialog from './components/CheckoutDialog';
 import CustomerAccessModal from './components/CustomerAccessModal';
 import AdminPanel from './components/AdminPanel';
 import AdminLogin from './components/AdminLogin';
+import StoreHero from './components/StoreHero';
+import { STORE_THEMES } from './themes';
 import {
   fetchProducts,
   getCustomerSession,
@@ -18,7 +21,8 @@ import {
 } from './services/api';
 
 export default function App() {
-  const [storeName, setStoreName] = useState('NEXUS HARDWARE');
+  const [themeId, setThemeId] = useState(() => localStorage.getItem('store-theme') || 'hardware');
+  const [storeName, setStoreName] = useState(() => localStorage.getItem('store-name') || STORE_THEMES.hardware.name);
   const [currentView, setCurrentView] = useState('shop');
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -30,6 +34,32 @@ export default function App() {
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [dashboard, setDashboard] = useState(null);
+  const [themeTransition, setThemeTransition] = useState(null);
+  const themeTransitionTimer = useRef(null);
+  const theme = STORE_THEMES[themeId] || STORE_THEMES.hardware;
+
+  useEffect(() => { localStorage.setItem('store-theme', theme.id); }, [theme.id]);
+  useEffect(() => () => window.clearTimeout(themeTransitionTimer.current), []);
+
+  const handleThemeChange = (nextThemeId) => {
+    const nextTheme = STORE_THEMES[nextThemeId];
+    if (!nextTheme) return;
+    const previousTheme = STORE_THEMES[themeId];
+    setThemeTransition(nextThemeId);
+    window.clearTimeout(themeTransitionTimer.current);
+    themeTransitionTimer.current = window.setTimeout(() => setThemeTransition(null), 760);
+    setThemeId(nextThemeId);
+    setStoreName((currentName) => {
+      const nextName = currentName === previousTheme.name ? nextTheme.name : currentName;
+      localStorage.setItem('store-name', nextName);
+      return nextName;
+    });
+  };
+
+  const handleStoreNameChange = (nextName) => {
+    setStoreName(nextName);
+    localStorage.setItem('store-name', nextName);
+  };
 
   useEffect(() => {
     let isActive = true;
@@ -139,7 +169,20 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--bg-primary)', color: 'var(--text-main)', fontFamily: "'Outfit', sans-serif" }}>
+    <div className="app-shell min-h-screen" data-theme={theme.id}>
+      <AnimatePresence>
+        {themeTransition && (
+          <motion.div
+            key={themeTransition}
+            aria-hidden="true"
+            className="theme-sweep"
+            initial={{ opacity: 0, clipPath: 'circle(0% at 50% 50%)' }}
+            animate={{ opacity: 1, clipPath: 'circle(82% at 50% 50%)' }}
+            exit={{ opacity: 0, transition: { duration: 0.28 } }}
+            transition={{ duration: 0.48, ease: [0.22, 1, 0.36, 1] }}
+          />
+        )}
+      </AnimatePresence>
       <Navbar
         storeName={storeName}
         cartCount={cart.reduce((total, item) => total + item.quantity, 0)}
@@ -150,38 +193,34 @@ export default function App() {
         onSearchChange={setSearchQuery}
       />
 
-      <main className="py-6">
+      <main className={currentView === 'shop' ? '' : 'py-6'}>
         {currentView === 'shop' ? (
-          isLoadingProducts ? (
-            <div className="flex flex-col items-center justify-center py-32 gap-3">
-              <div
-                className="h-10 w-10 rounded-full border-2 border-t-transparent animate-spin"
-                style={{ borderColor: 'rgba(99,102,241,0.4)', borderTopColor: '#6366f1' }}
-              />
-              <p className="text-sm" style={{ color: 'var(--text-dim)' }}>Carregando produtos...</p>
-            </div>
-          ) : productsError ? (
-            <div className="flex flex-col items-center justify-center py-32 gap-3">
-              <p className="text-sm" role="alert" style={{ color: '#f87171' }}>{productsError}</p>
-            </div>
-          ) : (
-            <ProductGrid products={filteredProducts} onAddToCart={handleAddToCart} />
-          )
+          <>
+            <StoreHero theme={theme} onExplore={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })} />
+            {isLoadingProducts ? (
+              <p className="py-12 text-center text-sm text-[var(--muted)]">Carregando produtos...</p>
+            ) : productsError ? (
+              <p className="py-12 text-center text-sm text-rose-500" role="alert">{productsError}</p>
+            ) : (
+              <ProductGrid products={filteredProducts} onAddToCart={handleAddToCart} theme={theme} />
+            )}
+          </>
         ) : adminSession === undefined ? (
-          <div className="flex items-center justify-center py-32">
-            <p className="text-sm" style={{ color: 'var(--text-dim)' }}>Verificando acesso...</p>
-          </div>
+          <p className="py-12 text-center text-sm text-zinc-400">Verificando acesso...</p>
         ) : adminSession ? (
           <AdminPanel
             currentStoreName={storeName}
-            onUpdateStoreName={setStoreName}
+            onUpdateStoreName={handleStoreNameChange}
+            theme={theme}
+            themeId={themeId}
+            onThemeChange={handleThemeChange}
             onAddProduct={handleAddProduct}
             dashboard={dashboard}
             onUpdateStock={handleUpdateStock}
             onLogout={handleLogout}
           />
         ) : (
-          <AdminLogin onAuthenticated={handleAdminLogin} />
+          <AdminLogin onAuthenticated={handleAdminLogin} storeName={storeName} theme={theme} />
         )}
       </main>
 
@@ -196,6 +235,8 @@ export default function App() {
       <CustomerAccessModal
         isOpen={customerSession === null}
         onAuthenticated={setCustomerSession}
+        storeName={storeName}
+        theme={theme}
       />
 
       {isCheckoutOpen && (

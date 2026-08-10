@@ -73,6 +73,8 @@ class HardwareApplicationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"fullName\":\"Cliente de Teste\",\"email\":\"cliente@example.test\","
                                 + "\"cpf\":\"529.982.247-25\",\"paymentMethod\":\"PIX\","
+                                + "\"postalCode\":\"01001-000\",\"state\":\"SP\",\"city\":\"São Paulo\","
+                                + "\"neighborhood\":\"Sé\",\"street\":\"Praça da Sé\",\"addressNumber\":\"100\","
                                 + "\"items\":[{\"productId\":" + product.getId() + ",\"quantity\":2}]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(999.80))

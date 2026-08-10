@@ -51,7 +51,8 @@ public class OrderController {
 
         BigDecimal total = BigDecimal.ZERO;
         PurchaseOrder order = new PurchaseOrder(customer, request.fullName().trim(), request.email().trim().toLowerCase(),
-                onlyDigits(request.cpf()), request.paymentMethod(), BigDecimal.ZERO);
+                onlyDigits(request.cpf()), request.paymentMethod(), onlyDigits(request.postalCode()), request.state().trim().toUpperCase(),
+                request.city().trim(), request.neighborhood().trim(), request.street().trim(), request.addressNumber().trim(), BigDecimal.ZERO);
 
         for (OrderItemRequest item : request.items()) {
             validateItem(item);
@@ -63,7 +64,9 @@ public class OrderController {
         }
 
         PurchaseOrder saved = purchaseOrderRepository.save(new PurchaseOrder(customer, request.fullName().trim(),
-                request.email().trim().toLowerCase(), onlyDigits(request.cpf()), request.paymentMethod(), total));
+                request.email().trim().toLowerCase(), onlyDigits(request.cpf()), request.paymentMethod(), onlyDigits(request.postalCode()),
+                request.state().trim().toUpperCase(), request.city().trim(), request.neighborhood().trim(), request.street().trim(),
+                request.addressNumber().trim(), total));
         order.getItems().forEach(saved::addItem);
         return toResponse(purchaseOrderRepository.save(saved));
     }
@@ -104,6 +107,11 @@ public class OrderController {
         if (request.paymentMethod() == null || !PAYMENT_METHODS.contains(request.paymentMethod())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Selecione uma forma de pagamento válida.");
         }
+        if (onlyDigits(request.postalCode()).length() != 8 || request.state() == null || !request.state().trim().matches("[A-Za-z]{2}")
+                || isBlankOrTooLong(request.city(), 120) || isBlankOrTooLong(request.neighborhood(), 160)
+                || isBlankOrTooLong(request.street(), 180) || isBlankOrTooLong(request.addressNumber(), 20)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Preencha um endereço de entrega válido.");
+        }
     }
 
     private void validateItem(OrderItemRequest item) {
@@ -134,22 +142,29 @@ public class OrderController {
         return value == null ? "" : value.replaceAll("\\D", "");
     }
 
+    private boolean isBlankOrTooLong(String value, int maxLength) {
+        return value == null || value.trim().isEmpty() || value.trim().length() > maxLength;
+    }
+
     private OrderResponse toResponse(PurchaseOrder order) {
         return new OrderResponse(order.getId(), order.getFullName(), order.getEmail(), order.getCpf(),
-                order.getPaymentMethod(), order.getTotal(), order.getStatus(), order.getCreatedAt(),
+                order.getPaymentMethod(), order.getPostalCode(), order.getState(), order.getCity(), order.getNeighborhood(),
+                order.getStreet(), order.getAddressNumber(), order.getTotal(), order.getStatus(), order.getCreatedAt(),
                 order.getItems().stream().map(item -> new OrderItemResponse(item.getProductId(), item.getProductName(),
                         item.getQuantity(), item.getUnitPrice())).toList());
     }
 
     public record CreateOrderRequest(String fullName, String email, String cpf, String paymentMethod,
-                                     List<OrderItemRequest> items) {
+                                     String postalCode, String state, String city, String neighborhood, String street,
+                                     String addressNumber, List<OrderItemRequest> items) {
     }
 
     public record OrderItemRequest(Long productId, Integer quantity) {
     }
 
     public record OrderResponse(Long id, String fullName, String email, String cpf, String paymentMethod,
-                                BigDecimal total, String status, java.time.Instant createdAt,
+                                String postalCode, String state, String city, String neighborhood, String street,
+                                String addressNumber, BigDecimal total, String status, java.time.Instant createdAt,
                                 List<OrderItemResponse> items) {
     }
 

@@ -7,7 +7,6 @@ create table if not exists public.products (
   description varchar(2000),
   stock_quantity integer not null default 0 check (stock_quantity >= 0),
   version bigint not null default 0,
-  constraint products_category_check check (category in ('GPU', 'CPU', 'RAM', 'SSD', 'Fonte')),
   constraint products_price_check check (price >= 0.01)
 );
 
@@ -30,6 +29,12 @@ create table if not exists public.purchase_orders (
   email varchar(254) not null,
   cpf varchar(11) not null,
   payment_method varchar(30) not null,
+  postal_code varchar(8),
+  state varchar(2),
+  city varchar(120),
+  neighborhood varchar(160),
+  street varchar(180),
+  address_number varchar(20),
   total numeric(12, 2) not null check (total >= 0),
   status varchar(30) not null default 'PENDING_PAYMENT',
   external_reference varchar(80) unique,
@@ -54,10 +59,17 @@ create table if not exists public.purchase_order_items (
 -- Safe upgrades for databases created by older versions of the application.
 alter table public.products add column if not exists stock_quantity integer not null default 0;
 alter table public.products add column if not exists version bigint not null default 0;
+alter table public.products drop constraint if exists products_category_check;
 alter table public.purchase_orders add column if not exists external_reference varchar(80);
 alter table public.purchase_orders add column if not exists payment_preference_id varchar(120);
 alter table public.purchase_orders add column if not exists gateway_payment_id varchar(120);
 alter table public.purchase_orders add column if not exists paid_at timestamptz;
+alter table public.purchase_orders add column if not exists postal_code varchar(8);
+alter table public.purchase_orders add column if not exists state varchar(2);
+alter table public.purchase_orders add column if not exists city varchar(120);
+alter table public.purchase_orders add column if not exists neighborhood varchar(160);
+alter table public.purchase_orders add column if not exists street varchar(180);
+alter table public.purchase_orders add column if not exists address_number varchar(20);
 create unique index if not exists purchase_orders_external_reference_unique on public.purchase_orders (external_reference) where external_reference is not null;
 create unique index if not exists purchase_orders_payment_preference_unique on public.purchase_orders (payment_preference_id) where payment_preference_id is not null;
 create unique index if not exists purchase_orders_gateway_payment_unique on public.purchase_orders (gateway_payment_id) where gateway_payment_id is not null;

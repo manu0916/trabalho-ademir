@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 
 public record ProductRequest(
         @NotBlank @Size(max = 120) String name,
-        @NotBlank @Pattern(regexp = "^(GPU|CPU|RAM|SSD|Fonte)$") String category,
+        @Size(max = 60) String category,
         @NotNull @DecimalMin(value = "0.01") @Digits(integer = 8, fraction = 2) BigDecimal price,
         @NotNull @PositiveOrZero Integer stockQuantity,
         @Size(max = 2_000) String description,

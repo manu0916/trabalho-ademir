@@ -61,7 +61,8 @@ public class PaymentController {
         BigDecimal total = BigDecimal.ZERO;
         List<MercadoPagoClient.CheckoutItem> paymentItems = new ArrayList<>();
         PurchaseOrder order = new PurchaseOrder(customer, request.fullName().trim(), request.email().trim().toLowerCase(),
-                digits(request.cpf()), request.paymentMethod(), BigDecimal.ZERO);
+                digits(request.cpf()), request.paymentMethod(), digits(request.postalCode()), request.state().trim().toUpperCase(),
+                request.city().trim(), request.neighborhood().trim(), request.street().trim(), request.addressNumber().trim(), BigDecimal.ZERO);
         order.setExternalReference(UUID.randomUUID().toString());
 
         for (Map.Entry<Long, Integer> entry : quantities.entrySet()) {
@@ -126,6 +127,12 @@ public class PaymentController {
         if (!EMAIL_PATTERN.matcher(request.email().trim()).matches()) throw badRequest("Informe um e-mail válido.");
         if (!isValidCpf(request.cpf())) throw badRequest("CPF inválido.");
         if (!PAYMENT_METHODS.contains(request.paymentMethod())) throw badRequest("Selecione uma forma de pagamento válida.");
+        if (digits(request.postalCode()).length() != 8) throw badRequest("Informe um CEP válido.");
+        if (request.state() == null || !request.state().trim().matches("[A-Za-z]{2}")) throw badRequest("Informe o estado.");
+        if (isBlankOrTooLong(request.city(), 120) || isBlankOrTooLong(request.neighborhood(), 160)
+                || isBlankOrTooLong(request.street(), 180) || isBlankOrTooLong(request.addressNumber(), 20)) {
+            throw badRequest("Preencha todos os dados do endereço.");
+        }
     }
 
     private static ResponseStatusException badRequest(String message) { return new ResponseStatusException(HttpStatus.BAD_REQUEST, message); }
@@ -135,6 +142,9 @@ public class PaymentController {
         if (cpf.length() != 11 || cpf.chars().distinct().count() == 1) return false;
         return cpfDigit(cpf, 9) == cpf.charAt(9) - '0' && cpfDigit(cpf, 10) == cpf.charAt(10) - '0';
     }
+    private static boolean isBlankOrTooLong(String value, int maxLength) {
+        return value == null || value.trim().isEmpty() || value.trim().length() > maxLength;
+    }
     private static int cpfDigit(String cpf, int length) {
         int total = 0;
         for (int index = 0; index < length; index++) total += (cpf.charAt(index) - '0') * (length + 1 - index);
@@ -143,7 +153,9 @@ public class PaymentController {
     }
 
     public record CheckoutRequest(@NotBlank String fullName, @NotBlank String email, @NotBlank String cpf,
-                                  @NotBlank String paymentMethod, @NotNull List<@Valid CheckoutItemRequest> items) { }
+                                  @NotBlank String paymentMethod, @NotBlank String postalCode, @NotBlank String state,
+                                  @NotBlank String city, @NotBlank String neighborhood, @NotBlank String street,
+                                  @NotBlank String addressNumber, @NotNull List<@Valid CheckoutItemRequest> items) { }
     public record CheckoutItemRequest(@NotNull Long productId, @NotNull @Positive Integer quantity) { }
     public record CheckoutResponse(Long orderId, String checkoutUrl) { }
 }
