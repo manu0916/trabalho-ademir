@@ -48,8 +48,14 @@ async function request(path, options = {}) {
 }
 
 async function adminRequest(path, options = {}) {
+  if (!adminAccessToken) {
+    const error = new Error('Sua sess\u00e3o administrativa expirou. Entre novamente para continuar.');
+    error.status = 401;
+    throw error;
+  }
+
   const headers = new Headers(options.headers);
-  if (adminAccessToken) headers.set('Authorization', `Bearer ${adminAccessToken}`);
+  headers.set('Authorization', `Bearer ${adminAccessToken}`);
   return request(path, { ...options, headers });
 }
 
@@ -133,12 +139,17 @@ export async function fetchAdminDashboard() {
 }
 
 export async function getAdminSession() {
-  const response = await adminRequest('/admin/auth/session');
+  // This is intentionally a plain request: after a browser refresh the
+  // short-lived token only held in memory no longer exists. The server checks
+  // the existing session and returns a fresh token when it is still valid.
+  const response = await request('/admin/auth/session');
   if (response.status === 401 || response.status === 403) {
     adminAccessToken = undefined;
     return null;
   }
-  return parseResponse(response);
+  const session = await parseResponse(response);
+  adminAccessToken = session.accessToken || undefined;
+  return adminAccessToken ? session : null;
 }
 
 export async function loginAdmin(credentials) {

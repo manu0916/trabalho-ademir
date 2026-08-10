@@ -45,7 +45,7 @@ export default function CustomerAccessModal({ isOpen, onAuthenticated, storeName
 
         <label className="customer-label mt-6 block text-sm">
           Usuário
-          <input value={username} onChange={(event) => setUsername(event.target.value)} minLength="3" maxLength="40" pattern="[A-Za-z0-9._\\-]+" autoComplete="username" required className="customer-input mt-2 w-full rounded-xl px-3.5 py-3 outline-none" />
+          <input value={username} onChange={(event) => setUsername(event.target.value)} minLength="3" maxLength="40" pattern="(?:[A-Za-z0-9._]|-)+" autoComplete="username" required className="customer-input mt-2 w-full rounded-xl px-3.5 py-3 outline-none" />
         </label>
         <label className="customer-label mt-4 block text-sm">
           Senha

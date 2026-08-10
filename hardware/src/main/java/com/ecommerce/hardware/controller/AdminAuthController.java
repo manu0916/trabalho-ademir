@@ -91,7 +91,13 @@ public class AdminAuthController {
 
     @GetMapping("/session")
     public AdminSessionResponse session(Authentication authentication) {
-        return new AdminSessionResponse(authentication.getName());
+        // The browser loses its in-memory access token after a page refresh. A
+        // validated admin session may therefore mint a new, short-lived token
+        // for the Vercel proxy requests without relying on its session cookie
+        // being forwarded on every subsequent write.
+        AdminAccessTokenService.IssuedToken accessToken = accessTokenService.issue(authentication.getName());
+        return new AdminSessionResponse(authentication.getName(), accessToken.value(),
+                accessToken.expiresAtEpochSeconds());
     }
 
     private void applyBackoff(long delayMillis) {

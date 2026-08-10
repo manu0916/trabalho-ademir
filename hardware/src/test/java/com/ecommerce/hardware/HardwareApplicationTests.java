@@ -21,6 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import tools.jackson.databind.json.JsonMapper;
 
 @SpringBootTest(properties = {
@@ -86,6 +87,36 @@ class HardwareApplicationTests {
                                 + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/product.png\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.name").value("Produto administrativo"));
+    }
+
+    @Test
+    void refreshedAdminSessionIssuesATokenThatCanCreateAProduct() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+
+        mockMvc.perform(post("/api/admin/auth/login")
+                        .with(csrf())
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@example.test\",\"password\":\"password1234\"}"))
+                .andExpect(status().isOk());
+
+        MvcResult refreshedSession = mockMvc.perform(get("/api/admin/auth/session")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("admin@example.test"))
+                .andReturn();
+
+        String accessToken = JsonMapper.shared().readTree(refreshedSession.getResponse().getContentAsString())
+                .path("accessToken").asText();
+        assertFalse(accessToken.isBlank());
+
+        mockMvc.perform(post("/api/products")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Produto apos refresh\",\"category\":\"Teste\",\"price\":10,"
+                                + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/refreshed.png\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Produto apos refresh"));
     }
 
     @Test
