@@ -100,7 +100,10 @@ export async function fetchProducts() {
 }
 
 export async function saveProduct(productData) {
-  const response = await protectedRequest('/products', {
+  // Product writes are authenticated by the administrator session on the server.
+  // They are deliberately excluded from CSRF because Vercel's reverse proxy can
+  // rotate the browser cookie independently of the proxied request.
+  const response = await request('/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(productData),
@@ -109,7 +112,7 @@ export async function saveProduct(productData) {
 }
 
 export async function updateProductStock(productId, stockQuantity) {
-  const response = await protectedRequest(`/products/${productId}/stock`, {
+  const response = await request(`/products/${productId}/stock`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ stockQuantity }),

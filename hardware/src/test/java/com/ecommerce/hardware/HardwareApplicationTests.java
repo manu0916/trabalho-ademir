@@ -11,6 +11,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -22,7 +23,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 
 @SpringBootTest(properties = {
         "app.admin.email=admin@example.test",
-        "app.admin.password-hash=$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+        "app.admin.password-hash=$2a$10$vADAsIj89J6CC52LDMhGsOyh0TOFIkjGJtUFgmkZQ6SddtSMSo0Wy"
 })
 @AutoConfigureMockMvc
 class HardwareApplicationTests {
@@ -63,6 +64,25 @@ class HardwareApplicationTests {
                         .header("Access-Control-Request-Method", "POST"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", previewOrigin));
+    }
+
+    @Test
+    void authenticatedAdminCanCreateAProduct() throws Exception {
+        MvcResult loginResult = mockMvc.perform(post("/api/admin/auth/login")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@example.test\",\"password\":\"password1234\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        MockHttpSession adminSession = (MockHttpSession) loginResult.getRequest().getSession(false);
+        mockMvc.perform(post("/api/products")
+                        .session(adminSession)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Produto administrativo\",\"category\":\"Teste\",\"price\":10,"
+                                + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/product.png\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Produto administrativo"));
     }
 
     @Test
