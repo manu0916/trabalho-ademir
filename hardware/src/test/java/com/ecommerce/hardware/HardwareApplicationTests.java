@@ -58,7 +58,7 @@ class HardwareApplicationTests {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"GPU\",\"category\":\"GPU\",\"price\":100,"
                         + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/gpu.png\"}"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -152,7 +152,7 @@ class HardwareApplicationTests {
                         .content("{\"name\":\"Produto pelo corpo\",\"category\":\"Teste\",\"price\":10,"
                                 + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/body.png\","
                                 + "\"adminAccessToken\":\"" + accessToken + "\"}"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
     }
 
     @Test
