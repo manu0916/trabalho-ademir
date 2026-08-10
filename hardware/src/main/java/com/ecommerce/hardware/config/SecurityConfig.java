@@ -21,6 +21,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.XorCsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 @Configuration
@@ -38,6 +39,9 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokenRepository)
+                        // The SPA receives a masked token from /csrf and sends it back in the X-XSRF-TOKEN header.
+                        // This handler safely resolves that masked value before comparing it to the CSRF cookie.
+                        .csrfTokenRequestHandler(new XorCsrfTokenRequestAttributeHandler())
                         // The gateway cannot carry a browser CSRF cookie. Its payload is verified server-to-server.
                         .ignoringRequestMatchers("/api/payments/mercado-pago/webhook"))
                 .securityContext(context -> context
