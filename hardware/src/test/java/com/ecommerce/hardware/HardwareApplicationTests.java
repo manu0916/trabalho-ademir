@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
@@ -20,6 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import tools.jackson.databind.json.JsonMapper;
 
 @SpringBootTest(properties = {
         "app.admin.email=admin@example.test",
@@ -75,9 +77,10 @@ class HardwareApplicationTests {
                 .andExpect(status().isOk())
                 .andReturn();
 
-        MockHttpSession adminSession = (MockHttpSession) loginResult.getRequest().getSession(false);
+        String accessToken = JsonMapper.shared().readTree(loginResult.getResponse().getContentAsString())
+                .path("accessToken").asText();
         mockMvc.perform(post("/api/products")
-                        .session(adminSession)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Produto administrativo\",\"category\":\"Teste\",\"price\":10,"
                                 + "\"stockQuantity\":1,\"imageUrl\":\"https://example.com/product.png\"}"))

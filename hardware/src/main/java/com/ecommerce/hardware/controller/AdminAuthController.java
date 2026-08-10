@@ -3,6 +3,7 @@ package com.ecommerce.hardware.controller;
 import com.ecommerce.hardware.auth.AdminAuthenticator;
 import com.ecommerce.hardware.auth.AdminLoginRequest;
 import com.ecommerce.hardware.auth.AdminSessionResponse;
+import com.ecommerce.hardware.security.AdminAccessTokenService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -35,13 +36,16 @@ public class AdminAuthController {
     private final AdminAuthenticator adminAuthenticator;
     private final SecurityContextRepository securityContextRepository;
     private final CsrfTokenRepository csrfTokenRepository;
+    private final AdminAccessTokenService accessTokenService;
 
     public AdminAuthController(AdminAuthenticator adminAuthenticator,
                                SecurityContextRepository securityContextRepository,
-                               CsrfTokenRepository csrfTokenRepository) {
+                               CsrfTokenRepository csrfTokenRepository,
+                               AdminAccessTokenService accessTokenService) {
         this.adminAuthenticator = adminAuthenticator;
         this.securityContextRepository = securityContextRepository;
         this.csrfTokenRepository = csrfTokenRepository;
+        this.accessTokenService = accessTokenService;
     }
 
     @GetMapping("/csrf")
@@ -80,7 +84,9 @@ public class AdminAuthController {
         csrfTokenRepository.saveToken(null, request, response);
 
         LOG.info("Admin login succeeded: ip={}", clientIp);
-        return ResponseEntity.ok(new AdminSessionResponse(result.email()));
+        AdminAccessTokenService.IssuedToken accessToken = accessTokenService.issue(result.email());
+        return ResponseEntity.ok(new AdminSessionResponse(result.email(), accessToken.value(),
+                accessToken.expiresAtEpochSeconds()));
     }
 
     @GetMapping("/session")

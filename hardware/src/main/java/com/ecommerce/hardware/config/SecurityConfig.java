@@ -1,6 +1,7 @@
 package com.ecommerce.hardware.config;
 
 import com.ecommerce.hardware.security.ApiRateLimitFilter;
+import com.ecommerce.hardware.security.AdminBearerAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    SecurityProperties securityProperties,
                                                    ApiRateLimitFilter apiRateLimitFilter,
+                                                   AdminBearerAuthenticationFilter adminBearerAuthenticationFilter,
                                                    SecurityContextRepository securityContextRepository,
                                                    CsrfTokenRepository csrfTokenRepository) throws Exception {
         http
@@ -91,7 +93,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/products/**").hasRole("ADMIN")
                         .anyRequest().denyAll())
-                .addFilterBefore(apiRateLimitFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(apiRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(adminBearerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         if (securityProperties.isEnforceHttps()) {
             http.requiresChannel(channel -> channel.anyRequest().requiresSecure());

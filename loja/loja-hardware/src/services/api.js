@@ -9,6 +9,7 @@ const API_URL = import.meta.env.PROD
 let csrfToken;
 let csrfTokenRequest;
 let productsRequest;
+let adminAccessToken;
 
 async function parseResponse(response) {
   if (!response.ok) {
@@ -44,6 +45,12 @@ async function request(path, options = {}) {
   } catch (error) {
     throw normalizeConnectionError(error);
   }
+}
+
+async function adminRequest(path, options = {}) {
+  const headers = new Headers(options.headers);
+  if (adminAccessToken) headers.set('Authorization', `Bearer ${adminAccessToken}`);
+  return request(path, { ...options, headers });
 }
 
 function readCookie(name) {
@@ -103,7 +110,7 @@ export async function saveProduct(productData) {
   // Product writes are authenticated by the administrator session on the server.
   // They are deliberately excluded from CSRF because Vercel's reverse proxy can
   // rotate the browser cookie independently of the proxied request.
-  const response = await request('/products', {
+  const response = await adminRequest('/products', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(productData),
@@ -112,7 +119,7 @@ export async function saveProduct(productData) {
 }
 
 export async function updateProductStock(productId, stockQuantity) {
-  const response = await request(`/products/${productId}/stock`, {
+  const response = await adminRequest(`/products/${productId}/stock`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ stockQuantity }),
@@ -121,32 +128,44 @@ export async function updateProductStock(productId, stockQuantity) {
 }
 
 export async function fetchAdminDashboard() {
-  const response = await protectedRequest('/admin/dashboard');
+  const response = await adminRequest('/admin/dashboard');
   return parseResponse(response);
 }
 
 export async function getAdminSession() {
-  const response = await request('/admin/auth/session');
-  if (response.status === 401 || response.status === 403) return null;
+  const response = await adminRequest('/admin/auth/session');
+  if (response.status === 401 || response.status === 403) {
+    adminAccessToken = undefined;
+    return null;
+  }
   return parseResponse(response);
 }
 
 export async function loginAdmin(credentials) {
+  adminAccessToken = undefined;
   const response = await protectedRequest('/admin/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(credentials),
   });
   const session = await parseResponse(response);
+  adminAccessToken = session.accessToken || undefined;
   csrfToken = undefined;
   await getCsrfToken();
   return session;
 }
 
 export async function logoutAdmin() {
-  const response = await protectedRequest('/admin/auth/logout', { method: 'POST' });
-  csrfToken = undefined;
-  return parseResponse(response);
+  try {
+    const response = await protectedRequest('/admin/auth/logout', {
+      method: 'POST',
+      headers: adminAccessToken ? { Authorization: `Bearer ${adminAccessToken}` } : undefined,
+    });
+    return parseResponse(response);
+  } finally {
+    adminAccessToken = undefined;
+    csrfToken = undefined;
+  }
 }
 
 export async function getCustomerSession() {
