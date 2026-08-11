@@ -1,1 +1,7 @@
 .superdesign/tmp/
+**/.env
+**/.env.*
+!**/.env.example
+**/target/
+**/dist/
+**/node_modules/

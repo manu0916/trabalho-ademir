@@ -26,14 +26,31 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith("/api/") || "OPTIONS".equalsIgnoreCase(request.getMethod());
+        return !request.getRequestURI().startsWith("/api/")
+                || "OPTIONS".equalsIgnoreCase(request.getMethod());
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String clientIp = request.getRemoteAddr();
-        if (!withinLimit(clientIp)) {
+        String path = request.getRequestURI();
+        boolean webhook = "/api/payments/stripe/webhook".equals(path);
+        if (webhook && request.getContentLengthLong() > StripeWebhookBodyLimitFilter.MAX_WEBHOOK_BYTES) {
+            StripeWebhookBodyLimitFilter.rejectPayloadTooLarge(response);
+            return;
+        }
+
+        boolean statusPolling = path.startsWith("/api/customer/payments/status")
+                || path.matches("/api/customer/payments/orders/[^/]+/status");
+        int limit = webhook ? securityProperties.getWebhookRateLimitPerMinute()
+                : statusPolling ? securityProperties.getPaymentStatusRateLimitPerMinute()
+                : securityProperties.getApiRateLimitPerMinute();
+        String bucket = webhook ? "webhook" : statusPolling ? "payment-status" : "api";
+        boolean customerAuthentication = "POST".equalsIgnoreCase(request.getMethod())
+                && path.startsWith("/api/customer/auth/");
+        String client = webhook || customerAuthentication || request.getSession(false) == null
+                ? request.getRemoteAddr() : "session:" + request.getSession(false).getId();
+        if (!withinLimit(bucket + ':' + client, limit)) {
             response.setStatus(429);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.setHeader("Retry-After", "60");
@@ -43,18 +60,18 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private boolean withinLimit(String clientIp) {
-        if (requests.size() >= MAX_TRACKED_CLIENTS && !requests.containsKey(clientIp)) {
+    private boolean withinLimit(String clientKey, int limit) {
+        if (requests.size() >= MAX_TRACKED_CLIENTS && !requests.containsKey(clientKey)) {
             requests.keySet().stream().findAny().ifPresent(requests::remove);
         }
 
-        Deque<Instant> window = requests.computeIfAbsent(clientIp, ignored -> new ArrayDeque<>());
+        Deque<Instant> window = requests.computeIfAbsent(clientKey, ignored -> new ArrayDeque<>());
         Instant cutoff = Instant.now().minusSeconds(60);
         synchronized (window) {
             while (!window.isEmpty() && window.peekFirst().isBefore(cutoff)) {
                 window.removeFirst();
             }
-            if (window.size() >= securityProperties.getApiRateLimitPerMinute()) {
+            if (window.size() >= limit) {
                 return false;
             }
             window.addLast(Instant.now());

@@ -54,7 +54,7 @@ export default function ProductGrid({ products, onAddToCart, theme }) {
 
               <div className="product-footer mt-auto flex items-center justify-between pt-4">
                 <div>
-                  <span className="block text-xs text-[var(--muted)]">À vista no Pix</span>
+                  <span className="block text-xs text-[var(--muted)]">Pagamento seguro</span>
                   <span className="product-price text-xl font-bold">R$ {Number(product.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                   <span className={`product-stock mt-1 flex items-center gap-1.5 text-xs ${product.stockQuantity > 0 ? 'text-emerald-500' : 'text-rose-500'}`}><i />{product.stockQuantity > 0 ? `${product.stockQuantity} em estoque` : 'Esgotado'}</span>
                 </div>

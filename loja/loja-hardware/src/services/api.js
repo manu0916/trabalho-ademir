@@ -75,14 +75,17 @@ restoreAdminAccessToken();
 async function parseResponse(response) {
   if (!response.ok) {
     let message = `Erro na API (${response.status})`;
+    let errorCode;
     try {
       const body = await response.json();
       message = body.message || body.detail || message;
+      if (typeof body.code === 'string') errorCode = body.code;
     } catch {
       // Some endpoints intentionally return an empty response.
     }
     const error = new Error(message);
     error.status = response.status;
+    if (errorCode) error.code = errorCode;
     throw error;
   }
 
@@ -277,20 +280,102 @@ export async function loginCustomer(credentials) {
   return parseResponse(response);
 }
 
-export async function createOrder(orderData) {
-  const response = await protectedRequest('/customer/orders', {
+export async function logoutCustomer() {
+  try {
+    const response = await protectedRequest('/customer/auth/logout', { method: 'POST' });
+    return parseResponse(response);
+  } finally {
+    csrfToken = undefined;
+  }
+}
+
+const KNOWN_PAYMENT_METHODS = new Set(['CARTAO_CREDITO', 'BOLETO', 'PIX']);
+
+export async function fetchPaymentMethods(options = {}) {
+  const response = await request('/payments/methods', { signal: options.signal });
+  const body = await parseResponse(response);
+  const methods = Array.isArray(body?.methods)
+    ? [...new Set(body.methods
+      .map((method) => String(method || '').trim().toUpperCase())
+      .filter((method) => KNOWN_PAYMENT_METHODS.has(method)))]
+    : [];
+
+  if (methods.length === 0) {
+    throw new Error('O servidor não informou uma forma de pagamento disponível.');
+  }
+  return methods;
+}
+
+export async function createPaymentCheckout(checkoutData, idempotencyKey) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey || '')) {
+    throw new Error('Seu navegador não oferece os recursos de segurança necessários para iniciar o pagamento. Atualize-o e tente novamente.');
+  }
+
+  const response = await protectedRequest('/customer/payments/checkout', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(orderData),
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+    },
+    body: JSON.stringify(checkoutData),
+  });
+  const checkout = await parseResponse(response);
+  if (!checkout?.orderId || typeof checkout.checkoutUrl !== 'string') {
+    throw new Error('O servidor não retornou uma sessão de pagamento válida. Tente novamente.');
+  }
+
+  let checkoutUrl;
+  try {
+    checkoutUrl = new URL(checkout.checkoutUrl);
+  } catch {
+    throw new Error('O servidor retornou um endereço de pagamento inválido. Tente novamente.');
+  }
+  const localHttp = checkoutUrl.protocol === 'http:'
+    && ['localhost', '127.0.0.1'].includes(checkoutUrl.hostname);
+  if (checkoutUrl.protocol !== 'https:' && !localHttp) {
+    throw new Error('O checkout seguro não está disponível neste momento. Tente novamente.');
+  }
+
+  return { ...checkout, checkoutUrl: checkoutUrl.toString() };
+}
+
+function normalizedSessionId(sessionId) {
+  const value = String(sessionId ?? '').trim();
+  if (!/^[A-Za-z0-9_-]{1,255}$/.test(value)) {
+    throw new Error('Identificador da sessão de pagamento inválido.');
+  }
+  return value;
+}
+
+function normalizedOrderId(orderId) {
+  const value = String(orderId ?? '').trim();
+  if (!/^[1-9]\d{0,18}$/.test(value)) {
+    throw new Error('Identificador do pedido inválido.');
+  }
+  return value;
+}
+
+export async function fetchPaymentStatusBySession(sessionId, options = {}) {
+  const query = new URLSearchParams({ sessionId: normalizedSessionId(sessionId) });
+  const response = await request(`/customer/payments/status?${query}`, { signal: options.signal });
+  return parseResponse(response);
+}
+
+export async function fetchOrderPaymentStatus(orderId, options = {}) {
+  const response = await request(`/customer/payments/orders/${normalizedOrderId(orderId)}/status`, { signal: options.signal });
+  return parseResponse(response);
+}
+
+export async function cancelPaymentOrder(orderId) {
+  const response = await protectedRequest(`/customer/payments/orders/${normalizedOrderId(orderId)}/cancel`, {
+    method: 'POST',
   });
   return parseResponse(response);
 }
 
-export async function createPaymentCheckout(checkoutData) {
-  const response = await protectedRequest('/customer/payments/checkout', {
+export async function refundAdminOrder(orderId) {
+  const response = await adminRequest(`/admin/orders/${normalizedOrderId(orderId)}/refund`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(checkoutData),
   });
   return parseResponse(response);
 }

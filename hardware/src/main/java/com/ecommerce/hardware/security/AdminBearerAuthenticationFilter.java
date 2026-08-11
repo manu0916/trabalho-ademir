@@ -10,6 +10,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.util.UrlPathHelper;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -35,7 +36,8 @@ public class AdminBearerAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
         String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
         Optional<String> authenticatedAdmin = Optional.empty();
-        if (authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
+        if (!isAdminSessionRefresh(request)
+                && authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
             String token = authorization.substring(7).trim();
             authenticatedAdmin = accessTokenService.validate(token);
             authenticatedAdmin.ifPresent(email -> {
@@ -50,10 +52,10 @@ public class AdminBearerAuthenticationFilter extends OncePerRequestFilter {
             });
         }
 
-        // Product writes use a signed, short-lived bearer instead of the browser session.
+        // Privileged writes use a signed, short-lived bearer instead of the browser session.
         // Enforce it here, before MVC parses or persists the request, and let the authorization
         // rules permit only requests that have already passed this guard.
-        if (isProductWrite(request) && authenticatedAdmin.isEmpty()) {
+        if (isBearerProtectedWrite(request) && authenticatedAdmin.isEmpty()) {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.getWriter().write("{\"message\":\"Acesso negado.\"}");
@@ -62,7 +64,13 @@ public class AdminBearerAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private boolean isProductWrite(HttpServletRequest request) {
+    private boolean isAdminSessionRefresh(HttpServletRequest request) {
+        return ("GET".equalsIgnoreCase(request.getMethod()) || "HEAD".equalsIgnoreCase(request.getMethod()))
+                && "/api/admin/auth/session".equals(
+                        UrlPathHelper.defaultInstance.getPathWithinApplication(request));
+    }
+
+    private boolean isBearerProtectedWrite(HttpServletRequest request) {
         String method = request.getMethod();
         if ("GET".equalsIgnoreCase(method)
                 || "HEAD".equalsIgnoreCase(method)
@@ -70,6 +78,7 @@ public class AdminBearerAuthenticationFilter extends OncePerRequestFilter {
             return false;
         }
         String path = request.getRequestURI();
-        return "/api/products".equals(path) || path.startsWith("/api/products/");
+        return "/api/products".equals(path) || path.startsWith("/api/products/")
+                || path.startsWith("/api/admin/orders/");
     }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import Navbar from './components/Navbar';
 import ProductGrid from './components/ProductGrid';
@@ -9,27 +9,51 @@ import AdminPanel from './components/AdminPanel';
 import AdminLogin from './components/AdminLogin';
 import StoreHero from './components/StoreHero';
 import BrandFooter from './components/BrandFooter';
+import PaymentStatusPage from './components/PaymentStatusPage';
 import { STORE_THEMES } from './themes';
 import {
   fetchProducts,
   getCustomerSession,
+  logoutCustomer,
   getAdminSession,
   loginAdmin,
   logoutAdmin,
   saveProduct,
   fetchAdminDashboard,
+  refundAdminOrder,
   updateProductStock,
 } from './services/api';
+import {
+  forgetPendingCheckout,
+  pendingCheckoutMatchesOrder,
+  readPendingCheckout,
+  readStoredCart,
+  storeCart,
+  subtractPurchasedItems,
+} from './services/paymentStorage';
+
+const PAYMENT_ROUTES = {
+  '/pagamento/sucesso': 'success',
+  '/pagamento/cancelado': 'cancelled',
+  '/pagamento/pendente': 'pending',
+  '/pagamento/falhou': 'failed',
+};
+
+function currentPaymentRoute() {
+  const pathname = window.location.pathname.replace(/\/$/, '') || '/';
+  return PAYMENT_ROUTES[pathname] || null;
+}
 
 function isAdminAuthenticationError(error) {
   return error?.status === 401 || error?.status === 403;
 }
 
 export default function App() {
+  const paymentRouteKind = currentPaymentRoute();
   const [themeId, setThemeId] = useState(() => localStorage.getItem('store-theme') || 'hardware');
   const [storeName, setStoreName] = useState(() => localStorage.getItem('store-name') || STORE_THEMES.hardware.name);
   const [currentView, setCurrentView] = useState('shop');
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(readStoredCart);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [products, setProducts] = useState([]);
@@ -44,12 +68,19 @@ export default function App() {
   const theme = STORE_THEMES[themeId] || STORE_THEMES.hardware;
 
   useEffect(() => { localStorage.setItem('store-theme', theme.id); }, [theme.id]);
+  useEffect(() => { storeCart(cart); }, [cart]);
   useEffect(() => () => window.clearTimeout(themeTransitionTimer.current), []);
   useEffect(() => {
-    document.title = `${storeName} — ${theme.category}`;
+    document.title = paymentRouteKind ? `Status do pagamento — ${storeName}` : `${storeName} — ${theme.category}`;
     document.documentElement.style.colorScheme = theme.id === 'hardware' ? 'dark' : 'light';
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.themeColor);
-  }, [storeName, theme.category, theme.id, theme.themeColor]);
+  }, [paymentRouteKind, storeName, theme.category, theme.id, theme.themeColor]);
+
+  useEffect(() => {
+    if (!paymentRouteKind && new URLSearchParams(window.location.search).get('carrinho') === '1') {
+      setIsCartOpen(true);
+    }
+  }, [paymentRouteKind]);
 
   const handleThemeChange = (nextThemeId) => {
     const nextTheme = STORE_THEMES[nextThemeId];
@@ -163,6 +194,26 @@ export default function App() {
     }
   };
 
+  const handleRefundOrder = async (orderId) => {
+    try {
+      const refund = await refundAdminOrder(orderId);
+      const refundDetails = refund && typeof refund === 'object' ? refund : {};
+      const refundStatus = typeof refund === 'string' ? refund : refund?.status;
+      setDashboard((previous) => previous && ({
+        ...previous,
+        orders: (previous.orders ?? []).map((order) => (
+          order.id === Number(orderId) || String(order.id) === String(orderId)
+            ? { ...order, ...refundDetails, status: refundStatus || order.status }
+            : order
+        )),
+      }));
+      return refund;
+    } catch (error) {
+      if (isAdminAuthenticationError(error)) setAdminSession(null);
+      throw error;
+    }
+  };
+
   const handleAdminLogin = async (credentials) => {
     const session = await loginAdmin(credentials);
     setAdminSession(session);
@@ -199,9 +250,50 @@ export default function App() {
     setIsCheckoutOpen(true);
   };
 
-  const handleOrderCreated = () => {
-    setCart([]);
-  };
+  const handlePaymentConfirmed = useCallback((payment) => {
+    if (payment?.paymentVerified !== true) return false;
+    const pendingCheckout = readPendingCheckout();
+    if (!pendingCheckoutMatchesOrder(payment.orderId, pendingCheckout)) return false;
+
+    setCart((currentCart) => subtractPurchasedItems(currentCart, pendingCheckout.items));
+    forgetPendingCheckout(payment.orderId);
+    return true;
+  }, []);
+
+  const handlePaymentTerminated = useCallback((orderId) => forgetPendingCheckout(orderId), []);
+  const handleCustomerAuthenticationRequired = useCallback(() => setCustomerSession(null), []);
+  const handleSwitchCustomer = useCallback(async () => {
+    try {
+      await logoutCustomer();
+    } finally {
+      setCustomerSession(null);
+    }
+  }, []);
+
+  if (paymentRouteKind) {
+    return (
+      <MotionConfig reducedMotion="user">
+        <div className="app-shell min-h-screen" data-theme={theme.id}>
+          <a href="#main-content" className="skip-link">Pular para o conteúdo</a>
+          <PaymentStatusPage
+            routeKind={paymentRouteKind}
+            storeName={storeName}
+            customerSession={customerSession}
+            onAuthenticationRequired={handleCustomerAuthenticationRequired}
+            onSwitchAccount={handleSwitchCustomer}
+            onPaymentConfirmed={handlePaymentConfirmed}
+            onPaymentTerminated={handlePaymentTerminated}
+          />
+          <CustomerAccessModal
+            isOpen={customerSession === null}
+            onAuthenticated={setCustomerSession}
+            storeName={storeName}
+            initialMode="login"
+          />
+        </div>
+      </MotionConfig>
+    );
+  }
 
   return (
     <MotionConfig reducedMotion="user">
@@ -264,6 +356,7 @@ export default function App() {
             onAddProduct={handleAddProduct}
             dashboard={dashboard}
             onUpdateStock={handleUpdateStock}
+            onRefundOrder={handleRefundOrder}
             onLogout={handleLogout}
           />
         ) : (
@@ -291,7 +384,6 @@ export default function App() {
           isOpen={isCheckoutOpen}
           onClose={() => setIsCheckoutOpen(false)}
           cartItems={cart}
-          onOrderCreated={handleOrderCreated}
         />
       )}
     </div>

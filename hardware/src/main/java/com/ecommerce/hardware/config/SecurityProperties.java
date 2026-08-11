@@ -15,6 +15,14 @@ public class SecurityProperties {
     @Max(10_000)
     private int apiRateLimitPerMinute = 120;
 
+    @Min(60)
+    @Max(10_000)
+    private int paymentStatusRateLimitPerMinute = 240;
+
+    @Min(60)
+    @Max(10_000)
+    private int webhookRateLimitPerMinute = 600;
+
     public boolean isEnforceHttps() {
         return enforceHttps;
     }
@@ -30,4 +38,9 @@ public class SecurityProperties {
     public void setApiRateLimitPerMinute(int apiRateLimitPerMinute) {
         this.apiRateLimitPerMinute = apiRateLimitPerMinute;
     }
+
+    public int getPaymentStatusRateLimitPerMinute() { return paymentStatusRateLimitPerMinute; }
+    public void setPaymentStatusRateLimitPerMinute(int value) { this.paymentStatusRateLimitPerMinute = value; }
+    public int getWebhookRateLimitPerMinute() { return webhookRateLimitPerMinute; }
+    public void setWebhookRateLimitPerMinute(int value) { this.webhookRateLimitPerMinute = value; }
 }

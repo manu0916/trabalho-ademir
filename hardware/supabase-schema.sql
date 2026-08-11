@@ -36,11 +36,36 @@ create table if not exists public.purchase_orders (
   street varchar(180),
   address_number varchar(20),
   total numeric(12, 2) not null check (total >= 0),
-  status varchar(30) not null default 'PENDING_PAYMENT',
+  status varchar(40) not null default 'PENDING_PAYMENT',
+  payment_state varchar(30) not null default 'PENDING',
+  refund_state varchar(20) not null default 'NONE',
+  dispute_state varchar(20) not null default 'NONE',
+  fulfillment_review_required boolean not null default false,
+  inventory_status varchar(30) not null default 'NONE',
+  payment_provider varchar(20) not null default 'STRIPE',
+  legacy_payment_reference varchar(600),
   external_reference varchar(80) unique,
-  payment_preference_id varchar(120) unique,
-  gateway_payment_id varchar(120) unique,
+  checkout_session_id varchar(255) unique,
+  checkout_status varchar(20),
+  checkout_url varchar(2048),
+  checkout_request_hash varchar(64),
+  checkout_expires_at timestamptz,
+  provider_success_url varchar(2048),
+  provider_cancel_url varchar(2048),
+  pix_expires_seconds bigint,
+  boleto_expires_days bigint,
+  payment_intent_id varchar(255) unique,
+  captured_amount numeric(12, 2) check (captured_amount >= 0),
+  captured_currency varchar(3),
+  refunded_amount numeric(12, 2) not null default 0 check (refunded_amount >= 0),
+  refund_attempt_id varchar(36),
+  refund_attempt_amount numeric(12, 2)
+    check (refund_attempt_amount > 0 and refund_attempt_amount <= total),
+  gateway_refund_id varchar(255),
+  payment_failure_code varchar(80),
   paid_at timestamptz,
+  refunded_at timestamptz,
+  payment_updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
 
@@ -56,20 +81,195 @@ create table if not exists public.purchase_order_items (
   unit_price numeric(12, 2) not null check (unit_price >= 0)
 );
 
+create table if not exists public.payment_webhook_events (
+  id varchar(255) primary key,
+  event_type varchar(100) not null,
+  object_id varchar(255),
+  processed_at timestamptz not null default now()
+);
+
+create table if not exists public.payment_checkout_attempts (
+  idempotency_key varchar(36) primary key,
+  customer_id bigint not null references public.customer_accounts(id),
+  request_hash varchar(64) not null,
+  order_id bigint references public.purchase_orders(id),
+  state varchar(20) not null default 'NEW',
+  lease_token varchar(36),
+  lease_expires_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.payment_refunds (
+  refund_id varchar(255) primary key,
+  order_id bigint not null references public.purchase_orders(id),
+  attempt_id varchar(36),
+  amount numeric(12, 2) not null check (amount > 0),
+  currency varchar(3) not null,
+  status varchar(30) not null,
+  last_event_created bigint not null,
+  last_event_rank integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.payment_disputes (
+  dispute_id varchar(255) primary key,
+  order_id bigint not null references public.purchase_orders(id),
+  amount numeric(12, 2) not null check (amount > 0),
+  currency varchar(3) not null,
+  status varchar(40) not null,
+  last_event_created bigint not null,
+  last_event_rank integer not null default 0,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists payment_webhook_events_processed_at_idx
+  on public.payment_webhook_events (processed_at desc);
+create index if not exists payment_refunds_order_idx on public.payment_refunds (order_id);
+create index if not exists payment_disputes_order_idx on public.payment_disputes (order_id);
+alter table public.payment_checkout_attempts add column if not exists state varchar(20) not null default 'NEW';
+alter table public.payment_checkout_attempts add column if not exists lease_token varchar(36);
+alter table public.payment_checkout_attempts add column if not exists lease_expires_at timestamptz;
+
 -- Safe upgrades for databases created by older versions of the application.
 alter table public.products add column if not exists stock_quantity integer not null default 0;
 alter table public.products add column if not exists version bigint not null default 0;
 alter table public.products drop constraint if exists products_category_check;
 alter table public.purchase_orders add column if not exists external_reference varchar(80);
-alter table public.purchase_orders add column if not exists payment_preference_id varchar(120);
-alter table public.purchase_orders add column if not exists gateway_payment_id varchar(120);
+alter table public.purchase_orders alter column status type varchar(40);
+alter table public.purchase_orders add column if not exists payment_state varchar(30) not null default 'PENDING';
+alter table public.purchase_orders add column if not exists refund_state varchar(20) not null default 'NONE';
+alter table public.purchase_orders add column if not exists dispute_state varchar(20) not null default 'NONE';
+alter table public.purchase_orders add column if not exists fulfillment_review_required boolean not null default false;
+alter table public.purchase_orders add column if not exists inventory_status varchar(30) not null default 'NONE';
+alter table public.purchase_orders add column if not exists payment_provider varchar(20);
+alter table public.purchase_orders add column if not exists legacy_payment_reference varchar(600);
+alter table public.purchase_orders add column if not exists checkout_session_id varchar(255);
+alter table public.purchase_orders add column if not exists checkout_status varchar(20);
+alter table public.purchase_orders add column if not exists checkout_url varchar(2048);
+alter table public.purchase_orders add column if not exists checkout_request_hash varchar(64);
+alter table public.purchase_orders add column if not exists checkout_expires_at timestamptz;
+alter table public.purchase_orders add column if not exists provider_success_url varchar(2048);
+alter table public.purchase_orders add column if not exists provider_cancel_url varchar(2048);
+alter table public.purchase_orders add column if not exists pix_expires_seconds bigint;
+alter table public.purchase_orders add column if not exists boleto_expires_days bigint;
+alter table public.purchase_orders add column if not exists payment_intent_id varchar(255);
+alter table public.purchase_orders add column if not exists captured_amount numeric(12, 2);
+alter table public.purchase_orders add column if not exists captured_currency varchar(3);
+alter table public.purchase_orders add column if not exists refunded_amount numeric(12, 2) not null default 0;
+alter table public.purchase_orders add column if not exists refund_attempt_id varchar(36);
+alter table public.purchase_orders add column if not exists refund_attempt_amount numeric(12, 2);
+alter table public.purchase_orders
+  drop constraint if exists purchase_orders_refund_attempt_amount_valid;
+alter table public.purchase_orders
+  add constraint purchase_orders_refund_attempt_amount_valid
+  check (refund_attempt_amount is null
+         or (refund_attempt_amount > 0 and refund_attempt_amount <= total));
+alter table public.purchase_orders add column if not exists gateway_refund_id varchar(255);
+alter table public.purchase_orders add column if not exists payment_failure_code varchar(80);
 alter table public.purchase_orders add column if not exists paid_at timestamptz;
+alter table public.purchase_orders add column if not exists refunded_at timestamptz;
+alter table public.purchase_orders add column if not exists payment_updated_at timestamptz not null default now();
 alter table public.purchase_orders add column if not exists postal_code varchar(8);
 alter table public.purchase_orders add column if not exists state varchar(2);
 alter table public.purchase_orders add column if not exists city varchar(120);
 alter table public.purchase_orders add column if not exists neighborhood varchar(160);
 alter table public.purchase_orders add column if not exists street varchar(180);
 alter table public.purchase_orders add column if not exists address_number varchar(20);
+update public.purchase_orders set payment_provider = 'LEGACY' where payment_provider is null;
+alter table public.purchase_orders alter column payment_provider set default 'STRIPE';
+alter table public.purchase_orders alter column payment_provider set not null;
+update public.purchase_orders
+  set inventory_status = case when status = 'PAID' then 'COMMITTED' else 'NONE' end
+  where inventory_status = 'NONE';
+
+-- Split the historical single status into independent payment/refund/dispute/fulfillment axes.
+update public.purchase_orders
+set payment_state = case
+  when payment_provider = 'LEGACY' and status = 'PAID' then 'REVIEW_REQUIRED'
+  when status in ('PAID', 'REFUND_PENDING', 'PARTIALLY_REFUNDED', 'REFUNDED', 'REFUND_FAILED',
+                  'DISPUTED', 'DISPUTE_LOST', 'FULFILLMENT_REVIEW_REQUIRED') then 'SUCCEEDED'
+  when status = 'PAYMENT_PROCESSING' then 'PROCESSING'
+  when status = 'PAYMENT_FAILED' then 'FAILED'
+  when status = 'PAYMENT_CANCELED' then 'CANCELED'
+  when status = 'PAYMENT_EXPIRED' then 'EXPIRED'
+  when status = 'PAYMENT_REVIEW_REQUIRED' then 'REVIEW_REQUIRED'
+  else payment_state
+end,
+refund_state = case
+  when status = 'REFUND_PENDING' then 'PENDING'
+  when status = 'PARTIALLY_REFUNDED' then 'PARTIAL'
+  when status = 'REFUNDED' then 'FULL'
+  when status = 'REFUND_FAILED' then 'FAILED'
+  else refund_state
+end,
+dispute_state = case
+  when status = 'DISPUTED' then 'OPEN'
+  when status = 'DISPUTE_LOST' then 'LOST'
+  else dispute_state
+end,
+fulfillment_review_required = fulfillment_review_required or (status = 'FULFILLMENT_REVIEW_REQUIRED'),
+checkout_status = case
+  when status in ('PAID', 'REFUND_PENDING', 'PARTIALLY_REFUNDED', 'REFUNDED', 'REFUND_FAILED',
+                  'DISPUTED', 'DISPUTE_LOST', 'FULFILLMENT_REVIEW_REQUIRED') then 'complete'
+  when status in ('PAYMENT_CANCELED', 'PAYMENT_EXPIRED') then 'expired'
+  else checkout_status
+end;
+
+-- The retired provider never supplied enough trusted data to backfill captured_amount/currency.
+-- Keep its identifiers for reconciliation and surface historical PAID rows for manual review.
+update public.purchase_orders
+set status = 'PAYMENT_REVIEW_REQUIRED'
+where payment_provider = 'LEGACY' and status = 'PAID';
+drop index if exists public.purchase_orders_payment_preference_unique;
+drop index if exists public.purchase_orders_gateway_payment_unique;
+
+-- Preserve identifiers from the retired integration under a provider-neutral audit field.
+do $migration$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'purchase_orders'
+               and column_name = 'payment_preference_id') then
+    execute $sql$
+      update public.purchase_orders
+      set legacy_payment_reference = concat_ws('|', nullif(legacy_payment_reference, ''),
+        nullif(payment_preference_id::text, ''))
+      where payment_preference_id is not null
+    $sql$;
+  end if;
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'purchase_orders'
+               and column_name = 'gateway_payment_id') then
+    execute $sql$
+      update public.purchase_orders
+      set legacy_payment_reference = concat_ws('|', nullif(legacy_payment_reference, ''),
+        nullif(gateway_payment_id::text, ''))
+      where gateway_payment_id is not null
+    $sql$;
+  end if;
+end
+$migration$;
+
+alter table public.purchase_orders drop column if exists payment_preference_id;
+alter table public.purchase_orders drop column if exists gateway_payment_id;
+alter table public.purchase_orders drop column if exists dispute_open;
+alter table public.purchase_orders drop column if exists dispute_event_created;
+alter table public.purchase_orders drop column if exists dispute_event_rank;
 create unique index if not exists purchase_orders_external_reference_unique on public.purchase_orders (external_reference) where external_reference is not null;
-create unique index if not exists purchase_orders_payment_preference_unique on public.purchase_orders (payment_preference_id) where payment_preference_id is not null;
-create unique index if not exists purchase_orders_gateway_payment_unique on public.purchase_orders (gateway_payment_id) where gateway_payment_id is not null;
+create unique index if not exists purchase_orders_checkout_session_unique on public.purchase_orders (checkout_session_id) where checkout_session_id is not null;
+create unique index if not exists purchase_orders_payment_intent_unique on public.purchase_orders (payment_intent_id) where payment_intent_id is not null;
+
+-- The browser never talks to Supabase directly. Keep PII and password hashes outside the Data API.
+alter table public.products enable row level security;
+alter table public.customer_accounts enable row level security;
+alter table public.purchase_orders enable row level security;
+alter table public.purchase_order_items enable row level security;
+alter table public.payment_webhook_events enable row level security;
+alter table public.payment_checkout_attempts enable row level security;
+alter table public.payment_refunds enable row level security;
+alter table public.payment_disputes enable row level security;
+revoke all on table public.products, public.customer_accounts, public.purchase_orders,
+  public.purchase_order_items, public.payment_webhook_events, public.payment_checkout_attempts,
+  public.payment_refunds, public.payment_disputes from anon, authenticated;
+revoke all on sequence public.products_id_seq, public.customer_accounts_id_seq,
+  public.purchase_orders_id_seq, public.purchase_order_items_id_seq from anon, authenticated;

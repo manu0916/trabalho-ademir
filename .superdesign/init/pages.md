@@ -41,11 +41,16 @@ src/App.jsx [branch currentView !== 'shop']
 ```text
 src/App.jsx
 ├── src/components/CartDrawer.jsx
-└── src/components/CheckoutDialog.jsx
-    └── src/services/api.js#createPaymentCheckout
+├── src/components/CheckoutDialog.jsx
+│   ├── src/services/api.js#fetchPaymentMethods
+│   └── src/services/api.js#createPaymentCheckout
+├── src/components/PaymentStatusPage.jsx
+│   ├── src/services/api.js#fetchPaymentStatusBySession
+│   └── src/services/api.js#fetchOrderPaymentStatus
+└── src/services/paymentStorage.js
 ```
 
-Contrato de checkout: `{ fullName, email, cpf, paymentMethod, postalCode, state, city, neighborhood, street, addressNumber, items: [{ productId, quantity }] }`.
+Contrato de checkout: a interface primeiro consulta `GET /api/payments/methods`; depois envia o corpo `{ fullName, email, cpf, paymentMethod, postalCode, state, city, neighborhood, street, addressNumber, items: [{ productId, quantity }] }` e o cabeçalho `Idempotency-Key` UUID. O carrinho permanece no armazenamento local até o back-end confirmar captura via estado derivado do webhook.
 
 ## Acesso do cliente
 

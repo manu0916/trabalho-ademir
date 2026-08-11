@@ -3,6 +3,7 @@ package com.ecommerce.hardware.config;
 import com.ecommerce.hardware.security.ApiRateLimitFilter;
 import com.ecommerce.hardware.security.AdminAccessTokenService;
 import com.ecommerce.hardware.security.AdminBearerAuthenticationFilter;
+import com.ecommerce.hardware.security.StripeWebhookBodyLimitFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -30,7 +31,7 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties({AdminProperties.class, SecurityProperties.class, MercadoPagoProperties.class})
+@EnableConfigurationProperties({AdminProperties.class, SecurityProperties.class, StripeProperties.class})
 public class SecurityConfig {
 
     private static final Logger LOG = LoggerFactory.getLogger(SecurityConfig.class);
@@ -49,7 +50,8 @@ public class SecurityConfig {
                         .csrfTokenRepository(csrfTokenRepository)
                         // Product writes authenticate with a signed Bearer token and therefore do
                         // not rely on a browser CSRF cookie crossing the Vercel rewrite.
-                        .ignoringRequestMatchers("/api/payments/mercado-pago/webhook", "/api/products/**"))
+                        .ignoringRequestMatchers("/api/payments/stripe/webhook", "/api/products/**",
+                                "/api/admin/orders/*/refund"))
                 .securityContext(context -> context
                         .securityContextRepository(securityContextRepository)
                         .requireExplicitSave(true))
@@ -92,20 +94,26 @@ public class SecurityConfig {
                         // method unless its signed Bearer is valid.
                         .requestMatchers(SecurityConfig::isProductEndpoint).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/payments/methods").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/admin/auth/csrf").permitAll()
                         // Anonymous checks return 204 instead of polluting the browser console with
                         // an expected 401. The controller only issues a token to ROLE_ADMIN.
                         .requestMatchers(HttpMethod.GET, "/api/admin/auth/session").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/admin/auth/login").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/payments/mercado-pago/webhook").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/payments/stripe/webhook").permitAll()
                         .requestMatchers("/api/customer/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/admin/orders/**")
+                                .hasAuthority("ROLE_ADMIN_BEARER")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().denyAll())
                 .addFilterAfter(new ApiRateLimitFilter(securityProperties), SecurityContextHolderFilter.class)
+                // Rate-limit first, then bounded-buffer at most MAX+1 bytes before MVC can
+                // materialize a chunked/unknown-length Stripe webhook request body.
+                .addFilterAfter(new StripeWebhookBodyLimitFilter(), ApiRateLimitFilter.class)
                 // Run after the session context is loaded and before anonymous/authorization.
                 // The filter is deliberately not a servlet @Component, preventing double execution.
                 .addFilterAfter(new AdminBearerAuthenticationFilter(adminAccessTokenService),
-                        ApiRateLimitFilter.class);
+                        StripeWebhookBodyLimitFilter.class);
 
         if (securityProperties.isEnforceHttps()) {
             http.requiresChannel(channel -> channel.anyRequest().requiresSecure());

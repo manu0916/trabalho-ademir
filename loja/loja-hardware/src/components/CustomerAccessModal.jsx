@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { loginCustomer, registerCustomer } from '../services/api';
 
-export default function CustomerAccessModal({ isOpen, onAuthenticated, storeName }) {
-  const [mode, setMode] = useState('register');
+export default function CustomerAccessModal({ isOpen, onAuthenticated, storeName, initialMode = 'register' }) {
+  const [mode, setMode] = useState(initialMode === 'login' ? 'login' : 'register');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');

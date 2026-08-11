@@ -32,7 +32,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 - A sacola só aparece em `shop`; `CartDrawer` é montado sempre e abre por estado.
 - `CustomerAccessModal` abre quando `customerSession === null` e não pode ser dispensado sem autenticação.
 - `CheckoutDialog` é montado somente quando `isCheckoutOpen` é verdadeiro.
-- Não existem rotas SPA dedicadas para retorno do Mercado Pago; o fallback da Vercel entrega `index.html`.
+- O Stripe retorna para `/pagamento/sucesso?session_id=...` ou `/pagamento/cancelado?order_id=...`; `/pagamento/pendente` e `/pagamento/falhou` permanecem como aliases de apresentação. O fallback da Vercel entrega `index.html` e a SPA interpreta o caminho.
+- As páginas aceitam `session_id`/`sessionId` ou `order_id`/`orderId`; se o redirecionamento não trouxer um identificador, usam o último `orderId` salvo no início do checkout.
+- A interface carrega os meios habilitados em `GET /api/payments/methods` e consulta periodicamente `GET /api/customer/payments/status?sessionId=...` ou `GET /api/customer/payments/orders/{orderId}/status`. Ela só reconcilia as quantidades do snapshot cujo `orderId` foi confirmado por `paymentVerified`; pendência, cancelamento, falha e expiração preservam os itens.
+- Essas páginas apenas apresentam o estado consultado. Somente o webhook assinado em `POST /api/payments/stripe/webhook` confirma pagamento, falha, expiração, reembolso ou disputa.
 
 ## Rewrites de produção
 

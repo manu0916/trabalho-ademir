@@ -2,17 +2,29 @@ package com.ecommerce.hardware;
 
 import com.ecommerce.hardware.model.Product;
 import com.ecommerce.hardware.repository.ProductRepository;
-import jakarta.servlet.http.HttpSession;
+import com.ecommerce.hardware.security.StripeWebhookBodyLimitFilter;
+import com.ecommerce.hardware.service.StripePaymentGateway;
+import jakarta.servlet.ReadListener;
+import jakarta.servlet.ServletInputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -22,12 +34,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import tools.jackson.databind.json.JsonMapper;
 
 @SpringBootTest(properties = {
         "app.admin.email=admin@example.test",
-        "app.admin.password-hash=$2a$10$vADAsIj89J6CC52LDMhGsOyh0TOFIkjGJtUFgmkZQ6SddtSMSo0Wy"
+        "app.admin.password-hash=$2a$10$vADAsIj89J6CC52LDMhGsOyh0TOFIkjGJtUFgmkZQ6SddtSMSo0Wy",
+        "app.stripe.reconciliation-interval-ms=86400000"
 })
 @AutoConfigureMockMvc
 class HardwareApplicationTests {
@@ -38,8 +60,66 @@ class HardwareApplicationTests {
     @Autowired
     private ProductRepository productRepository;
 
+    @MockitoBean
+    private StripePaymentGateway stripePaymentGateway;
+
     @Test
     void contextLoads() {
+    }
+
+    @Test
+    void stripeWebhookBodyLimitPreservesExactBytesForSignatureVerification() throws Exception {
+        String signature = "t=1786406400,v1=test-signature";
+        byte[] rawPayload = "{\r\n  \"id\": \"evt_a\u00e7\u00e3o\", \"spaces\": \"  \"\r\n}\n"
+                .getBytes(StandardCharsets.UTF_8);
+        when(stripePaymentGateway.verifyWebhook(anyString(), eq(signature)))
+                .thenThrow(new ResponseStatusException(HttpStatus.BAD_REQUEST, "test stop"));
+
+        mockMvc.perform(post("/api/payments/stripe/webhook")
+                        .header("Stripe-Signature", signature)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(rawPayload))
+                .andExpect(status().isBadRequest());
+
+        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+        verify(stripePaymentGateway).verifyWebhook(payload.capture(), eq(signature));
+        assertArrayEquals(rawPayload, payload.getValue().getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void stripeWebhookRejectsDeclaredOversizeBodyBeforeSignatureVerification() throws Exception {
+        byte[] oversized = new byte[StripeWebhookBodyLimitFilter.MAX_WEBHOOK_BYTES + 1];
+
+        mockMvc.perform(post("/api/payments/stripe/webhook")
+                        .header("Stripe-Signature", "unused")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(oversized))
+                .andExpect(status().isPayloadTooLarge());
+
+        verify(stripePaymentGateway, never()).verifyWebhook(anyString(), anyString());
+    }
+
+    @Test
+    void stripeWebhookRejectsUnknownLengthAfterOnlyLimitPlusOneBytesAndMatchesExactPath() throws Exception {
+        StripeWebhookBodyLimitFilter filter = new StripeWebhookBodyLimitFilter();
+        UnknownLengthRequest oversized = new UnknownLengthRequest(
+                "/api/payments/stripe/webhook", StripeWebhookBodyLimitFilter.MAX_WEBHOOK_BYTES + 128);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicBoolean invoked = new AtomicBoolean();
+
+        filter.doFilter(oversized, response, (request, result) -> invoked.set(true));
+
+        assertEquals(413, response.getStatus());
+        assertFalse(invoked.get());
+        assertEquals(StripeWebhookBodyLimitFilter.MAX_WEBHOOK_BYTES + 1, oversized.bytesRead());
+
+        UnknownLengthRequest nearMiss = new UnknownLengthRequest(
+                "/api/payments/stripe/webhook/replay", StripeWebhookBodyLimitFilter.MAX_WEBHOOK_BYTES + 128);
+        AtomicBoolean nearMissInvoked = new AtomicBoolean();
+        filter.doFilter(nearMiss, new MockHttpServletResponse(),
+                (request, result) -> nearMissInvoked.set(true));
+        assertTrue(nearMissInvoked.get());
+        assertEquals(0, nearMiss.bytesRead());
     }
 
     @Test
@@ -183,6 +263,37 @@ class HardwareApplicationTests {
     }
 
     @Test
+    void bearerAloneCannotRefreshAdminTokenButPersistedSessionCan() throws Exception {
+        MockHttpSession adminSession = new MockHttpSession();
+        MvcResult loginResult = mockMvc.perform(post("/api/admin/auth/login")
+                        .with(csrf())
+                        .session(adminSession)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@example.test\",\"password\":\"password1234\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String bearer = JsonMapper.shared().readTree(loginResult.getResponse().getContentAsString())
+                .path("accessToken").asText();
+
+        mockMvc.perform(get("/api/admin/auth/session")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer))
+                .andExpect(status().isNoContent());
+        MvcResult matrixParameterAttempt = mockMvc.perform(get("/api/admin/auth/session;source=bearer")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer))
+                .andExpect(status().is4xxClientError())
+                .andReturn();
+        assertNull(matrixParameterAttempt.getHandler());
+
+        MvcResult refreshed = mockMvc.perform(get("/api/admin/auth/session")
+                        .session(adminSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("admin@example.test"))
+                .andReturn();
+        assertFalse(JsonMapper.shared().readTree(refreshed.getResponse().getContentAsString())
+                .path("accessToken").asText().isBlank());
+    }
+
+    @Test
     void healthEndpointIdentifiesTheRunningBuild() throws Exception {
         mockMvc.perform(get("/api/health"))
                 .andExpect(status().isOk())
@@ -221,14 +332,12 @@ class HardwareApplicationTests {
     }
 
     @Test
-    void customerCanRegisterAndCreateOrderWithValidCpf() throws Exception {
-        Product product = productRepository.save(new Product(null, "SSD 1TB", "SSD", new BigDecimal("499.90"),
-                "https://example.com/ssd.png", "SSD de teste"));
-        HttpSession session = new MockHttpSession();
+    void legacyOrderCreationEndpointIsMethodNotAllowed() throws Exception {
+        MockHttpSession session = new MockHttpSession();
 
         mockMvc.perform(post("/api/customer/auth/register")
                         .with(csrf())
-                        .session((MockHttpSession) session)
+                        .session(session)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"cliente.teste\",\"password\":\"senha123\"}"))
                 .andExpect(status().isCreated())
@@ -236,15 +345,100 @@ class HardwareApplicationTests {
 
         mockMvc.perform(post("/api/customer/orders")
                         .with(csrf())
-                        .session((MockHttpSession) session)
+                        .session(session)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"fullName\":\"Cliente de Teste\",\"email\":\"cliente@example.test\","
-                                + "\"cpf\":\"529.982.247-25\",\"paymentMethod\":\"PIX\","
-                                + "\"postalCode\":\"01001-000\",\"state\":\"SP\",\"city\":\"São Paulo\","
-                                + "\"neighborhood\":\"Sé\",\"street\":\"Praça da Sé\",\"addressNumber\":\"100\","
-                                + "\"items\":[{\"productId\":" + product.getId() + ",\"quantity\":2}]}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.total").value(999.80))
-                .andExpect(jsonPath("$.items[0].productName").value("SSD 1TB"));
+                        .content("{}"))
+                .andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
+    void refundRouteWithMatrixParametersStillRequiresAdministratorBearer() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        mockMvc.perform(post("/api/admin/auth/login")
+                        .with(csrf())
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@example.test\",\"password\":\"password1234\"}"))
+                .andExpect(status().isOk());
+
+        MvcResult valuedParameter = mockMvc.perform(
+                        post("/api/admin/orders/999999/refund;x=1").session(session))
+                .andExpect(status().is4xxClientError())
+                .andReturn();
+        MvcResult flagParameter = mockMvc.perform(
+                        post("/api/admin/orders/999999/refund;foo").session(session))
+                .andExpect(status().is4xxClientError())
+                .andReturn();
+        assertNull(valuedParameter.getHandler());
+        assertNull(flagParameter.getHandler());
+    }
+
+    private static final class UnknownLengthRequest extends MockHttpServletRequest {
+        private final GeneratedServletInputStream input;
+
+        private UnknownLengthRequest(String requestUri, int bodyLength) {
+            setMethod("POST");
+            setRequestURI(requestUri);
+            this.input = new GeneratedServletInputStream(bodyLength);
+        }
+
+        @Override
+        public int getContentLength() {
+            return -1;
+        }
+
+        @Override
+        public long getContentLengthLong() {
+            return -1;
+        }
+
+        @Override
+        public ServletInputStream getInputStream() {
+            return input;
+        }
+
+        private int bytesRead() {
+            return input.position;
+        }
+    }
+
+    private static final class GeneratedServletInputStream extends ServletInputStream {
+        private final int length;
+        private int position;
+
+        private GeneratedServletInputStream(int length) {
+            this.length = length;
+        }
+
+        @Override
+        public int read() {
+            if (position >= length) return -1;
+            position++;
+            return 'x';
+        }
+
+        @Override
+        public int read(byte[] bytes, int offset, int requested) {
+            if (position >= length) return -1;
+            int count = Math.min(requested, length - position);
+            Arrays.fill(bytes, offset, offset + count, (byte) 'x');
+            position += count;
+            return count;
+        }
+
+        @Override
+        public boolean isFinished() {
+            return position >= length;
+        }
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public void setReadListener(ReadListener listener) {
+            throw new UnsupportedOperationException("Synchronous test stream");
+        }
     }
 }

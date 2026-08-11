@@ -1,7 +1,33 @@
 import { useState } from 'react';
 import { STORE_THEMES } from '../themes';
+import { paymentMethodLabel, paymentStatusMeta } from '../services/paymentStatus';
 
-export default function AdminPanel({ currentStoreName, onUpdateStoreName, onAddProduct, onLogout, dashboard, onUpdateStock, theme, themeId, onThemeChange }) {
+const REFUNDABLE_STATUSES = new Set(['PAID', 'PARTIALLY_REFUNDED', 'REFUND_FAILED', 'FULFILLMENT_REVIEW_REQUIRED']);
+
+function formatCurrency(value) {
+  return Number(value ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function maskCpf(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length === 11 ? `***.***.***-${digits.slice(-2)}` : '***.***.***-**';
+}
+
+function refundableBalance(order) {
+  return Math.max(0, Number(order?.total ?? 0) - Number(order?.refundedAmount ?? 0));
+}
+
+function canRefundOrder(order) {
+  const status = String(order?.status || '').toUpperCase();
+  const paymentMethod = String(order?.paymentMethod || '').toUpperCase();
+  return String(order?.paymentProvider || '').toUpperCase() === 'STRIPE'
+    && order?.paymentVerified === true
+    && paymentMethod !== 'BOLETO'
+    && REFUNDABLE_STATUSES.has(status)
+    && refundableBalance(order) > 0;
+}
+
+export default function AdminPanel({ currentStoreName, onUpdateStoreName, onAddProduct, onLogout, dashboard, onUpdateStock, onRefundOrder, theme, themeId, onThemeChange }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
@@ -10,6 +36,7 @@ export default function AdminPanel({ currentStoreName, onUpdateStoreName, onAddP
   const [storeNameInput, setStoreNameInput] = useState(currentStoreName);
   const [stockDrafts, setStockDrafts] = useState({});
   const [updatingProductId, setUpdatingProductId] = useState(null);
+  const [refundingOrderId, setRefundingOrderId] = useState(null);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
 
   const handleProductSubmit = async (event) => {
@@ -37,6 +64,18 @@ export default function AdminPanel({ currentStoreName, onUpdateStoreName, onAddP
     setUpdatingProductId(product.id);
     try { await onUpdateStock(product.id, quantity); } catch (error) { alert(error.message || 'Não foi possível atualizar o estoque.'); } finally { setUpdatingProductId(null); }
   };
+  const handleRefund = async (order) => {
+    const balance = formatCurrency(refundableBalance(order));
+    if (!window.confirm(`Confirmar o reembolso do saldo de ${balance} do pedido #${order.id}? A solicitação não pode ser desfeita neste painel.`)) return;
+    setRefundingOrderId(order.id);
+    try {
+      await onRefundOrder(order.id);
+    } catch (error) {
+      alert(error.message || 'Não foi possível solicitar o reembolso.');
+    } finally {
+      setRefundingOrderId(null);
+    }
+  };
   const stats = [
     ['Produtos vendidos', dashboard?.productsSold ?? 0], ['Contas criadas', dashboard?.accountsCreated ?? 0],
     ['Valor vendido', `R$ ${Number(dashboard?.revenue ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`], ['Produtos cadastrados', dashboard?.registeredProducts ?? 0],
@@ -58,7 +97,51 @@ export default function AdminPanel({ currentStoreName, onUpdateStoreName, onAddP
 
       <section className="admin-card admin-stock-card rounded-2xl p-6"><div className="admin-section-heading"><span>03</span><h2>Controle de estoque</h2></div><p className="mt-2 text-sm text-[var(--muted)]">Ajuste a quantidade disponível. Uma venda confirmada reduz o saldo automaticamente.</p><div className="mt-5 space-y-3">{(dashboard?.inventory ?? []).map((product) => <div key={product.id} className="stock-row flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><p className="truncate font-semibold text-[var(--text)]">{product.name}</p><p className="text-xs text-[var(--muted)]">R$ {Number(product.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p></div><input type="number" min="0" step="1" aria-label={`Estoque de ${product.name}`} value={stockDrafts[product.id] ?? product.stockQuantity} onChange={(event) => setStockDrafts((previous) => ({ ...previous, [product.id]: event.target.value }))} className={`${inputClass} sm:w-28`} /><button type="button" disabled={updatingProductId === product.id} onClick={() => handleStockUpdate(product)} className="stock-save cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-50">{updatingProductId === product.id ? 'Salvando...' : 'Salvar'}</button></div>)}{dashboard && dashboard.inventory.length === 0 && <p className="empty-state py-6 text-center text-sm">Ainda não há produtos cadastrados.</p>}</div></section>
 
-      <section className="admin-card admin-orders-card rounded-2xl p-6"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className="section-kicker">Expedição</p><h2 className="text-xl font-bold text-[var(--text)]">Pedidos recebidos</h2><p className="mt-1 text-sm text-[var(--muted)]">Dados completos para separar e enviar cada compra.</p></div><span className="orders-count rounded-full px-3 py-1 text-xs font-bold">{dashboard?.orders?.length ?? 0} pedidos</span></div><div className="mt-5 space-y-4">{(dashboard?.orders ?? []).map((order) => <article key={order.id} className="order-card rounded-2xl p-5"><div className="flex flex-col justify-between gap-3 sm:flex-row"><div><p className="text-xs font-bold uppercase tracking-wide text-[var(--accent)]">Pedido #{order.id} · {order.status === 'PAID' ? 'Pagamento aprovado' : 'Aguardando pagamento'}</p><h3 className="mt-1 text-lg font-bold text-[var(--text)]">{order.fullName}</h3><p className="mt-1 text-sm text-[var(--muted)]">{order.email} · CPF {order.cpf}</p></div><div className="sm:text-right"><strong className="text-lg text-[var(--text)]">R$ {Number(order.total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong><p className="mt-1 text-xs text-[var(--muted)]">{order.paymentMethod.replace('_', ' ')}</p></div></div><div className="order-details mt-4 grid gap-4 border-t pt-4 md:grid-cols-2"><div><p className="order-label">Endereço de entrega</p><p className="mt-1 text-sm font-semibold text-[var(--text)]">{order.street}, {order.addressNumber} — {order.neighborhood}</p><p className="text-sm text-[var(--muted)]">{order.city}/{order.state} · CEP {order.postalCode?.replace(/(\d{5})(\d{3})/, '$1-$2')}</p></div><div><p className="order-label">Itens do pedido</p><ul className="mt-1 space-y-1 text-sm text-[var(--muted)]">{order.items.map((item) => <li key={`${order.id}-${item.productName}`}>{item.quantity}× {item.productName} <span className="text-[var(--text)]">— R$ {Number(item.unitPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></li>)}</ul></div></div></article>)}{dashboard && dashboard.orders.length === 0 && <p className="empty-state py-6 text-center text-sm">Nenhum pedido registrado ainda.</p>}</div></section>
+      <section className="admin-card admin-orders-card rounded-2xl p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div><p className="section-kicker">Pagamentos e expedição</p><h2 className="text-xl font-bold text-[var(--text)]">Pedidos recebidos</h2><p className="mt-1 text-sm text-[var(--muted)]">Acompanhe a confirmação do provedor antes de separar e enviar cada compra.</p></div>
+          <span className="orders-count rounded-full px-3 py-1 text-xs font-bold">{dashboard?.orders?.length ?? 0} pedidos</span>
+        </div>
+        <div className="mt-5 space-y-4">
+          {(dashboard?.orders ?? []).map((order) => {
+            const status = paymentStatusMeta(order.status);
+            const refundedAmount = Math.max(0, Number(order.refundedAmount ?? 0));
+            const remainingBalance = refundableBalance(order);
+            return (
+              <article key={order.id} className="order-card rounded-2xl p-5">
+                <div className="flex flex-col justify-between gap-3 sm:flex-row">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-bold uppercase tracking-wide text-[var(--accent)]">Pedido #{order.id}</p>
+                      <span className={`payment-status-badge payment-status-badge-${status.tone}`}>{status.label}</span>
+                    </div>
+                    <h3 className="mt-2 text-lg font-bold text-[var(--text)]">{order.fullName}</h3>
+                    <p className="mt-1 text-sm text-[var(--muted)]">{order.email} · CPF {maskCpf(order.cpf)}</p>
+                  </div>
+                  <div className="sm:text-right">
+                    <strong className="text-lg text-[var(--text)]">{formatCurrency(order.total)}</strong>
+                    <p className="mt-1 text-xs text-[var(--muted)]">{paymentMethodLabel(order.paymentMethod)}</p>
+                    {refundedAmount > 0 && <p className="mt-1 text-xs text-[var(--muted)]">Reembolsado: {formatCurrency(refundedAmount)} · saldo: {formatCurrency(remainingBalance)}</p>}
+                  </div>
+                </div>
+                <div className="order-details mt-4 grid gap-4 border-t pt-4 md:grid-cols-2">
+                  <div><p className="order-label">Endereço de entrega</p><p className="mt-1 text-sm font-semibold text-[var(--text)]">{order.street}, {order.addressNumber} — {order.neighborhood}</p><p className="text-sm text-[var(--muted)]">{order.city}/{order.state} · CEP {order.postalCode?.replace(/(\d{5})(\d{3})/, '$1-$2')}</p></div>
+                  <div><p className="order-label">Itens do pedido</p><ul className="mt-1 space-y-1 text-sm text-[var(--muted)]">{(order.items ?? []).map((item) => <li key={`${order.id}-${item.productName}`}>{item.quantity}× {item.productName} <span className="text-[var(--text)]">— R$ {Number(item.unitPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></li>)}</ul></div>
+                </div>
+                {canRefundOrder(order) && (
+                  <div className="order-payment-actions mt-4 border-t pt-4">
+                    <button type="button" disabled={refundingOrderId === order.id} onClick={() => handleRefund(order)} className="refund-button cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold disabled:cursor-wait disabled:opacity-50">
+                      {refundingOrderId === order.id ? 'Processando reembolso...' : `Reembolsar saldo de ${formatCurrency(remainingBalance)}`}
+                    </button>
+                    <p>A Stripe receberá a solicitação do saldo capturado restante. O resultado final continuará vindo do webhook assinado.</p>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+          {dashboard && dashboard.orders.length === 0 && <p className="empty-state py-6 text-center text-sm">Nenhum pedido registrado ainda.</p>}
+        </div>
+      </section>
     </div>
   );
 }

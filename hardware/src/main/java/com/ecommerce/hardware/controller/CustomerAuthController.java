@@ -5,6 +5,10 @@ import com.ecommerce.hardware.repository.CustomerAccountRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import java.util.Locale;
+import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,11 +24,15 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/customer/auth")
 public class CustomerAuthController {
 
+    private static final int MAX_LOGIN_KEYS = 10_000;
+    private static final int LOGIN_ATTEMPTS_PER_MINUTE = 10;
+
     static final String CUSTOMER_ID_SESSION_KEY = "customerId";
     static final String CUSTOMER_USERNAME_SESSION_KEY = "customerUsername";
 
     private final CustomerAccountRepository customerAccountRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ConcurrentHashMap<String, Deque<Instant>> loginAttempts = new ConcurrentHashMap<>();
 
     public CustomerAuthController(CustomerAccountRepository customerAccountRepository, PasswordEncoder passwordEncoder) {
         this.customerAccountRepository = customerAccountRepository;
@@ -33,7 +41,7 @@ public class CustomerAuthController {
 
     @PostMapping("/register")
     public ResponseEntity<CustomerSessionResponse> register(@RequestBody CustomerCredentials credentials,
-                                                            HttpSession session) {
+                                                             HttpServletRequest request) {
         String username = normalizeUsername(credentials.username());
         validatePassword(credentials.password());
 
@@ -44,7 +52,7 @@ public class CustomerAuthController {
         try {
             CustomerAccount account = customerAccountRepository.saveAndFlush(
                     new CustomerAccount(username, passwordEncoder.encode(credentials.password())));
-            startSession(session, account);
+            startSession(request, account);
             return ResponseEntity.status(HttpStatus.CREATED).body(new CustomerSessionResponse(account.getUsername()));
         } catch (DataIntegrityViolationException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Este usuário já está em uso.");
@@ -52,13 +60,22 @@ public class CustomerAuthController {
     }
 
     @PostMapping("/login")
-    public CustomerSessionResponse login(@RequestBody CustomerCredentials credentials, HttpSession session) {
+    public CustomerSessionResponse login(@RequestBody CustomerCredentials credentials, HttpServletRequest request) {
         String username = normalizeUsername(credentials.username());
+        String attemptKey = request.getRemoteAddr() + '|' + username;
+        if (!withinLoginLimit(attemptKey)) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Muitas tentativas de acesso. Aguarde um minuto.");
+        }
+        if (credentials.password() == null || credentials.password().length() > 100) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuário ou senha inválidos.");
+        }
         CustomerAccount account = customerAccountRepository.findByUsernameIgnoreCase(username)
                 .filter(foundAccount -> passwordEncoder.matches(credentials.password(), foundAccount.getPasswordHash()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuário ou senha inválidos."));
 
-        startSession(session, account);
+        startSession(request, account);
+        loginAttempts.remove(attemptKey);
         return new CustomerSessionResponse(account.getUsername());
     }
 
@@ -81,7 +98,9 @@ public class CustomerAuthController {
         return ResponseEntity.noContent().build();
     }
 
-    private void startSession(HttpSession session, CustomerAccount account) {
+    private void startSession(HttpServletRequest request, CustomerAccount account) {
+        HttpSession session = request.getSession(true);
+        request.changeSessionId();
         session.setAttribute(CUSTOMER_ID_SESSION_KEY, account.getId());
         session.setAttribute(CUSTOMER_USERNAME_SESSION_KEY, account.getUsername());
     }
@@ -101,6 +120,20 @@ public class CustomerAuthController {
     private void validatePassword(String password) {
         if (password == null || password.length() < 6 || password.length() > 100) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A senha deve ter entre 6 e 100 caracteres.");
+        }
+    }
+
+    private boolean withinLoginLimit(String key) {
+        if (loginAttempts.size() >= MAX_LOGIN_KEYS && !loginAttempts.containsKey(key)) {
+            loginAttempts.keySet().stream().findAny().ifPresent(loginAttempts::remove);
+        }
+        Deque<Instant> window = loginAttempts.computeIfAbsent(key, ignored -> new ArrayDeque<>());
+        Instant cutoff = Instant.now().minusSeconds(60);
+        synchronized (window) {
+            while (!window.isEmpty() && window.peekFirst().isBefore(cutoff)) window.removeFirst();
+            if (window.size() >= LOGIN_ATTEMPTS_PER_MINUTE) return false;
+            window.addLast(Instant.now());
+            return true;
         }
     }
 
