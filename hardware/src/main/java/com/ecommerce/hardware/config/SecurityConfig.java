@@ -116,7 +116,10 @@ public class SecurityConfig {
                         StripeWebhookBodyLimitFilter.class);
 
         if (securityProperties.isEnforceHttps()) {
-            http.requiresChannel(channel -> channel.anyRequest().requiresSecure());
+            // requiresChannel is a legacy DSL whose Spring Security 7.1 implementation still
+            // references removed channel classes. redirectToHttps uses the supported transport
+            // filter and honors the scheme already normalized by the trusted Render proxy.
+            http.redirectToHttps(Customizer.withDefaults());
         }
 
         return http.build();
