@@ -9,7 +9,15 @@ import {
 } from '../utils/catalogCategories';
 import ProductDetailModal from './ProductDetailModal';
 
-export default function ProductGrid({ products, onAddToCart, theme, searchQuery = '', onClearSearch }) {
+export default function ProductGrid({
+  products,
+  onAddToCart,
+  theme,
+  searchQuery = '',
+  onClearSearch,
+  customerSession,
+  onOpenLogin,
+}) {
   const [activeCategoryId, setActiveCategoryId] = useState(ALL_CATEGORIES_ID);
   const [selectedProductForDetail, setSelectedProductForDetail] = useState(null);
 
@@ -105,6 +113,8 @@ export default function ProductGrid({ products, onAddToCart, theme, searchQuery 
         onClose={() => setSelectedProductForDetail(null)}
         onAddToCart={onAddToCart}
         theme={theme}
+        customerSession={customerSession}
+        onOpenLogin={onOpenLogin}
       />
 
       {visibleProducts.length === 0 && (

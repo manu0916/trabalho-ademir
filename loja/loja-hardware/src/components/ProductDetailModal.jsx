@@ -2,6 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getProductImages } from '../utils/productImages';
 import { getCategoryLabel } from '../utils/catalogCategories';
+import StarRating from './StarRating';
+import {
+  fetchProductReviews,
+  fetchProductReviewEligibility,
+  submitProductReview,
+} from '../services/api';
 
 const AVAILABLE_SIZES = ['37', '38', '39', '40', '41', '42', '43', '44'];
 
@@ -20,16 +26,46 @@ function getProductColorVariants(product) {
   ];
 }
 
-export default function ProductDetailModal({ product, isOpen, onClose, onAddToCart, theme }) {
+export default function ProductDetailModal({
+  product,
+  isOpen,
+  onClose,
+  onAddToCart,
+  theme,
+  customerSession,
+  onOpenLogin,
+}) {
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
-  
+
   const colors = useMemo(() => (product ? getProductColorVariants(product) : []), [product]);
   const [selectedSize, setSelectedSize] = useState('40');
   const [selectedColor, setSelectedColor] = useState(() => colors[0]?.name || 'Padrão');
-  
+
   const allImages = useMemo(() => (product ? getProductImages(product) : []), [product]);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+
+  // Reviews state
+  const [activeTab, setActiveTab] = useState('specs'); // 'specs' | 'reviews'
+  const [reviewsData, setReviewsData] = useState({ reviews: [], averageRating: 5.0, totalCount: 0 });
+  const [isLoadingReviews, setIsLoadingReviews] = useState(false);
+  const [eligibility, setEligibility] = useState(null);
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [newRating, setNewRating] = useState(5);
+  const [newComment, setNewComment] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+
+  const loadReviews = useCallback(() => {
+    if (!product?.id) return;
+    setIsLoadingReviews(true);
+    fetchProductReviews(product.id)
+      .then((data) => {
+        if (data) setReviewsData(data);
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingReviews(false));
+  }, [product?.id]);
 
   // Reset selections when a new product is opened
   useEffect(() => {
@@ -38,8 +74,14 @@ export default function ProductDetailModal({ product, isOpen, onClose, onAddToCa
       setSelectedColor(defaultColors[0]?.name || 'Padrão');
       setSelectedSize('40');
       setActiveImageIndex(0);
+      setActiveTab('specs');
+      setShowReviewForm(false);
+      setReviewError('');
+      setNewComment('');
+      setNewRating(5);
+      loadReviews();
     }
-  }, [product]);
+  }, [loadReviews, product]);
 
   // Modal accessibility
   useEffect(() => {
@@ -58,6 +100,47 @@ export default function ProductDetailModal({ product, isOpen, onClose, onAddToCa
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isOpen, onClose]);
+
+  const handleOpenReviewForm = async () => {
+    setReviewError('');
+    if (!customerSession) {
+      setEligibility({ eligible: false, reason: 'Faça login com sua conta para avaliar este modelo.' });
+      setShowReviewForm(true);
+      return;
+    }
+
+    try {
+      const result = await fetchProductReviewEligibility(product.id);
+      setEligibility(result);
+      setShowReviewForm(true);
+    } catch (err) {
+      setEligibility({ eligible: false, reason: err.message || 'Erro ao verificar elegibilidade.' });
+      setShowReviewForm(true);
+    }
+  };
+
+  const handleSubmitReview = async (event) => {
+    event.preventDefault();
+    setReviewError('');
+    const cleanComment = newComment.trim();
+    if (!cleanComment) {
+      setReviewError('Escreva um comentário para sua avaliação.');
+      return;
+    }
+
+    setIsSubmittingReview(true);
+    try {
+      await submitProductReview(product.id, { rating: newRating, comment: cleanComment });
+      setNewComment('');
+      setNewRating(5);
+      setShowReviewForm(false);
+      loadReviews();
+    } catch (err) {
+      setReviewError(err.message || 'Não foi possível enviar sua avaliação.');
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
 
   if (!isOpen || !product) return null;
 
@@ -101,7 +184,7 @@ export default function ProductDetailModal({ product, isOpen, onClose, onAddToCa
           role="dialog"
           aria-modal="true"
           aria-labelledby="product-detail-title"
-          className="product-detail-card relative z-10 w-full max-w-4xl overflow-hidden rounded-[1.85rem] bg-[var(--surface-solid)] p-6 shadow-2xl border border-[var(--line)] sm:p-8"
+          className="product-detail-card relative z-10 w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-[1.85rem] bg-[var(--surface-solid)] p-6 shadow-2xl border border-[var(--line)] sm:p-8"
         >
           {/* Close Button */}
           <button
@@ -115,7 +198,6 @@ export default function ProductDetailModal({ product, isOpen, onClose, onAddToCa
           </button>
 
           <div className="grid gap-8 md:grid-cols-12 md:items-start">
-            
             {/* Gallery Column (Left) */}
             <div className="md:col-span-6 flex flex-col gap-4">
               <div className="product-detail-main-image relative aspect-square w-full overflow-hidden rounded-2xl bg-[var(--bg)] border border-[var(--line)]">
@@ -150,11 +232,25 @@ export default function ProductDetailModal({ product, isOpen, onClose, onAddToCa
             {/* Product Details & Purchase Controls (Right) */}
             <div className="md:col-span-6 flex flex-col justify-between">
               <div>
-                <p className="section-kicker">{theme?.edition || 'Sneakers & Streetwear'}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="section-kicker">{theme?.edition || 'Sneakers & Streetwear'}</p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('reviews')}
+                    className="flex items-center gap-1.5 text-xs text-[var(--muted)] hover:text-[var(--accent)] transition-colors cursor-pointer"
+                  >
+                    <StarRating rating={Math.round(reviewsData.averageRating || 5)} readOnly size="sm" />
+                    <span className="font-bold text-[var(--text)]">
+                      {Number(reviewsData.averageRating || 5).toFixed(1)}
+                    </span>
+                    <span>({reviewsData.totalCount})</span>
+                  </button>
+                </div>
+
                 <h1 id="product-detail-title" className="mt-1 text-2xl font-extrabold text-[var(--text)] sm:text-3xl">
                   {product.name}
                 </h1>
-                
+
                 <div className="mt-3 flex items-baseline gap-3">
                   <span className="text-3xl font-black text-[var(--text)]">
                     R$ {Number(product.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -162,84 +258,252 @@ export default function ProductDetailModal({ product, isOpen, onClose, onAddToCa
                   <span className="text-xs text-[var(--muted)]">em até 12x no cartão</span>
                 </div>
 
-                <p className="mt-4 text-sm leading-6 text-[var(--muted)]">
-                  {product.description || 'Modelo de alta performance com design exclusivo, materiais de alta durabilidade e amortecimento superior para o seu ritmo.'}
-                </p>
-
-                <hr className="my-6 border-[var(--line)]" />
-
-                {/* Color Variations with Stock */}
-                <div className="mb-5">
-                  <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="font-semibold text-[var(--text)]">
-                      Cor: <span className="text-[var(--accent)]">{selectedColor}</span>
+                {/* Tabs */}
+                <div className="mt-5 flex gap-2 border-b border-[var(--line)] pb-2 text-sm font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('specs')}
+                    className={`pb-1 transition-colors ${activeTab === 'specs' ? 'text-[var(--accent)] border-b-2 border-[var(--accent)]' : 'text-[var(--muted)] hover:text-[var(--text)]'}`}
+                  >
+                    Comprar & Detalhes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('reviews')}
+                    className={`pb-1 transition-colors flex items-center gap-1.5 ${activeTab === 'reviews' ? 'text-[var(--accent)] border-b-2 border-[var(--accent)]' : 'text-[var(--muted)] hover:text-[var(--text)]'}`}
+                  >
+                    Avaliações
+                    <span className="rounded-full bg-[var(--surface)] px-2 py-0.5 text-xs font-bold">
+                      {reviewsData.totalCount}
                     </span>
-                    <span className={`text-xs font-bold ${colorStock > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {colorStock > 0 ? `✓ ${colorStock} pares disponíveis` : '✕ Esgotado'}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {colors.map((color) => {
-                      const isSelected = selectedColor === color.name;
-                      return (
-                        <button
-                          key={color.name}
-                          type="button"
-                          onClick={() => setSelectedColor(color.name)}
-                          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold border transition-all ${isSelected ? 'border-[var(--accent)] bg-[var(--surface)] text-[var(--text)] ring-2 ring-[var(--accent)]/30' : 'border-[var(--line)] bg-[var(--bg)] text-[var(--muted)] hover:border-[var(--accent)]'}`}
-                        >
-                          <span className="h-3.5 w-3.5 rounded-full border border-white/20" style={{ backgroundColor: color.hex }} />
-                          <span>{color.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  </button>
                 </div>
 
-                {/* Size (Numeração) Selector */}
-                <div className="mb-6">
-                  <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="font-semibold text-[var(--text)]">
-                      Tamanho (BR): <span className="text-[var(--accent)] font-bold">{selectedSize}</span>
-                    </span>
-                    <span className="text-xs text-[var(--muted)]">Tabela de medidas BR</span>
+                {activeTab === 'specs' ? (
+                  <div className="mt-4">
+                    <p className="text-sm leading-6 text-[var(--muted)]">
+                      {product.description || 'Modelo de alta performance com design exclusivo, amortecimento de ponta e materiais premium para máxima tração e estilo.'}
+                    </p>
+
+                    <hr className="my-5 border-[var(--line)]" />
+
+                    {/* Color Variations with Stock */}
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="font-semibold text-[var(--text)]">
+                          Cor: <span className="text-[var(--accent)]">{selectedColor}</span>
+                        </span>
+                        <span className={`text-xs font-bold ${colorStock > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                          {colorStock > 0 ? `✓ ${colorStock} pares disponíveis` : '✕ Esgotado'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {colors.map((color) => {
+                          const isSelected = selectedColor === color.name;
+                          return (
+                            <button
+                              key={color.name}
+                              type="button"
+                              onClick={() => setSelectedColor(color.name)}
+                              className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-all ${isSelected ? 'border-[var(--accent)] bg-[var(--surface)] text-[var(--text)] ring-2 ring-[var(--accent)]/30' : 'border-[var(--line)] bg-[var(--bg)] text-[var(--muted)] hover:border-[var(--accent)]'}`}
+                            >
+                              <span className="h-3 w-3 rounded-full border border-white/20" style={{ backgroundColor: color.hex }} />
+                              <span>{color.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Size (Numeração) Selector */}
+                    <div className="mb-5">
+                      <div className="flex items-center justify-between text-sm mb-2">
+                        <span className="font-semibold text-[var(--text)]">
+                          Tamanho (BR): <span className="text-[var(--accent)] font-bold">{selectedSize}</span>
+                        </span>
+                        <span className="text-xs text-[var(--muted)]">Padrão Brasileiro</span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
+                        {AVAILABLE_SIZES.map((size) => {
+                          const isSelected = selectedSize === size;
+                          return (
+                            <button
+                              key={size}
+                              type="button"
+                              onClick={() => setSelectedSize(size)}
+                              className={`flex h-10 items-center justify-center rounded-xl text-sm font-bold border transition-all ${isSelected ? 'bg-[var(--accent)] text-[var(--accent-ink)] border-[var(--accent)] shadow-md scale-105' : 'border-[var(--line)] bg-[var(--bg)] text-[var(--text)] hover:border-[var(--accent)]'}`}
+                              aria-pressed={isSelected}
+                            >
+                              {size}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Add to Cart CTA */}
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={handleAdd}
+                        disabled={!isAvailable}
+                        className="buy-button w-full cursor-pointer rounded-2xl py-3.5 text-base font-bold transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 shadow-xl"
+                      >
+                        {isAvailable ? `Adicionar à Sacola (Tam ${selectedSize} • ${selectedColor})` : 'Esgotado nesta variação'}
+                      </button>
+                      <p className="mt-2 text-center text-xs text-[var(--muted)]">
+                        ⚡ Envio rápido para todo o Brasil • Pagamento 100% seguro
+                      </p>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
-                    {AVAILABLE_SIZES.map((size) => {
-                      const isSelected = selectedSize === size;
-                      return (
+                ) : (
+                  /* Reviews Tab */
+                  <div className="mt-4 space-y-4">
+                    <div className="flex items-center justify-between bg-[var(--bg)] p-4 rounded-2xl border border-[var(--line)]">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-2xl font-black text-[var(--text)]">
+                            {Number(reviewsData.averageRating || 5).toFixed(1)}
+                          </span>
+                          <StarRating rating={Math.round(reviewsData.averageRating || 5)} readOnly size="sm" />
+                        </div>
+                        <span className="text-xs text-[var(--muted)]">
+                          {reviewsData.totalCount} {reviewsData.totalCount === 1 ? 'avaliação de comprador' : 'avaliações de compradores'}
+                        </span>
+                      </div>
+
+                      {!showReviewForm && (
                         <button
-                          key={size}
                           type="button"
-                          onClick={() => setSelectedSize(size)}
-                          className={`flex h-11 items-center justify-center rounded-xl text-sm font-bold border transition-all ${isSelected ? 'bg-[var(--accent)] text-[var(--accent-ink)] border-[var(--accent)] shadow-md scale-105' : 'border-[var(--line)] bg-[var(--bg)] text-[var(--text)] hover:border-[var(--accent)]'}`}
-                          aria-pressed={isSelected}
+                          onClick={handleOpenReviewForm}
+                          className="buy-button px-4 py-2 rounded-xl text-xs font-bold"
                         >
-                          {size}
+                          ★ Avaliar este par
                         </button>
-                      );
-                    })}
+                      )}
+                    </div>
+
+                    {/* Review Submission Form / Eligibility Notice */}
+                    {showReviewForm && (
+                      <div className="rounded-2xl bg-[var(--bg)] p-5 border border-[var(--line)]">
+                        {!eligibility?.eligible ? (
+                          <div className="text-center py-3">
+                            <div className="text-2xl mb-1.5">🔒</div>
+                            <h4 className="text-sm font-bold text-[var(--text)]">
+                              {eligibility?.alreadyReviewed ? 'Você já avaliou este par' : 'Apenas Compradores Deste Modelo'}
+                            </h4>
+                            <p className="mt-1 text-xs text-[var(--muted)]">
+                              {eligibility?.reason || 'Apenas clientes que compraram este tênis podem avaliá-lo.'}
+                            </p>
+                            {!customerSession ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onClose();
+                                  onOpenLogin?.();
+                                }}
+                                className="buy-button mt-3 px-4 py-2 rounded-xl text-xs font-bold"
+                              >
+                                Entrar na minha conta
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setShowReviewForm(false)}
+                                className="mt-3 px-3.5 py-1.5 rounded-lg text-xs font-semibold border border-[var(--line)] text-[var(--text)]"
+                              >
+                                Fechar
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <form onSubmit={handleSubmitReview} className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wide">
+                                Sua Avaliação Verificada
+                              </h4>
+                              <button
+                                type="button"
+                                onClick={() => setShowReviewForm(false)}
+                                className="text-xs text-[var(--muted)] hover:text-[var(--text)]"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+
+                            {reviewError && (
+                              <div className="rounded-lg bg-rose-500/10 p-2 text-xs font-semibold text-rose-500 border border-rose-500/20">
+                                {reviewError}
+                              </div>
+                            )}
+
+                            <div>
+                              <label className="block text-xs text-[var(--muted)] mb-1">Nota em estrelas:</label>
+                              <StarRating rating={newRating} onChange={setNewRating} size="md" />
+                            </div>
+
+                            <div>
+                              <label htmlFor="sneaker-review-comment" className="block text-xs text-[var(--muted)] mb-1">
+                                Comentário sobre o conforto, tamanho e visual:
+                              </label>
+                              <textarea
+                                id="sneaker-review-comment"
+                                rows={3}
+                                value={newComment}
+                                onChange={(e) => setNewComment(e.target.value)}
+                                placeholder="Ex: Tamanho serviu perfeitamente (forma padrão), amortecimento impecável..."
+                                maxLength={4000}
+                                className="w-full rounded-xl bg-[var(--surface-solid)] p-3 text-xs text-[var(--text)] border border-[var(--line)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
+                                required
+                              />
+                            </div>
+
+                            <button
+                              type="submit"
+                              disabled={isSubmittingReview || !newComment.trim()}
+                              className="buy-button w-full py-2.5 rounded-xl text-xs font-bold"
+                            >
+                              {isSubmittingReview ? 'Enviando...' : 'Publicar Avaliação do Tênis'}
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Reviews List */}
+                    {isLoadingReviews ? (
+                      <div className="py-8 text-center text-xs text-[var(--muted)]">
+                        Carregando avaliações...
+                      </div>
+                    ) : reviewsData.reviews.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-[var(--muted)]">
+                        Nenhuma avaliação registrada ainda para este modelo. Seja o primeiro comprador a avaliar!
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                        {reviewsData.reviews.map((r, idx) => (
+                          <div key={r.id || idx} className="rounded-xl bg-[var(--bg)] p-3.5 border border-[var(--line)] text-xs">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <StarRating rating={r.rating} readOnly size="sm" />
+                              <span className="text-[10px] text-emerald-500 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                                ✓ Comprador Verificado
+                              </span>
+                            </div>
+                            <p className="text-[var(--text)] whitespace-pre-line leading-relaxed">
+                              “{r.comment}”
+                            </p>
+                            <div className="mt-2 pt-2 border-t border-[var(--line)]/50 flex justify-between text-[11px] text-[var(--muted)]">
+                              <span className="font-semibold text-[var(--text)]">{r.authorName}</span>
+                              <span>{r.createdAt ? new Date(r.createdAt).toLocaleDateString('pt-BR') : 'Recente'}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
               </div>
-
-              {/* Add to Cart CTA */}
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={handleAdd}
-                  disabled={!isAvailable}
-                  className="buy-button w-full cursor-pointer rounded-2xl py-4 text-base font-bold transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 shadow-xl"
-                >
-                  {isAvailable ? `Adicionar à Sacola (Tam ${selectedSize} • ${selectedColor})` : 'Esgotado nesta variação'}
-                </button>
-                <p className="mt-2.5 text-center text-xs text-[var(--muted)]">
-                  ⚡ Envio rápido para todo o Brasil • Pagamento 100% seguro
-                </p>
-              </div>
-
             </div>
-
           </div>
         </motion.section>
       </div>

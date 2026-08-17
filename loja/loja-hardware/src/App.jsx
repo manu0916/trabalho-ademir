@@ -9,6 +9,7 @@ import CustomerAccountModal from './components/CustomerAccountModal';
 import AdminPanel from './components/AdminPanel';
 import AdminLogin from './components/AdminLogin';
 import StoreHero from './components/StoreHero';
+import StoreReviewsSection from './components/StoreReviewsSection';
 import BrandFooter from './components/BrandFooter';
 import PaymentStatusPage from './components/PaymentStatusPage';
 import { STORE_THEME } from './themes';
@@ -550,8 +551,14 @@ export default function App() {
                 theme={theme}
                 searchQuery={searchQuery}
                 onClearSearch={() => setSearchQuery('')}
+                customerSession={customerSession}
+                onOpenLogin={() => setIsCustomerAccessOpen(true)}
               />
             )}
+            <StoreReviewsSection
+              customerSession={customerSession}
+              onOpenLogin={() => setIsCustomerAccessOpen(true)}
+            />
             <BrandFooter storeName={storeName} theme={theme} />
           </>
         ) : adminSession === undefined ? (

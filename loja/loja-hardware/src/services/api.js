@@ -488,3 +488,42 @@ export async function cancelWhatsappOrder(orderId) {
   });
   return parseResponse(response);
 }
+
+export async function fetchStoreReviews(options = {}) {
+  const response = await request('/reviews/store', { signal: options.signal });
+  return parseResponse(response);
+}
+
+export async function fetchStoreReviewEligibility(options = {}) {
+  const response = await request('/customer/reviews/store/eligibility', { signal: options.signal });
+  return parseResponse(response);
+}
+
+export async function submitStoreReview({ rating, comment }) {
+  const response = await protectedRequest('/customer/reviews/store', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating: Number(rating), comment: String(comment || '').trim() }),
+  });
+  return parseResponse(response);
+}
+
+export async function fetchProductReviews(productId, options = {}) {
+  const response = await request(`/reviews/products/${normalizedOrderId(productId)}`, { signal: options.signal });
+  return parseResponse(response);
+}
+
+export async function fetchProductReviewEligibility(productId, options = {}) {
+  const response = await request(`/customer/reviews/products/${normalizedOrderId(productId)}/eligibility`, { signal: options.signal });
+  return parseResponse(response);
+}
+
+export async function submitProductReview(productId, { rating, comment }) {
+  const response = await protectedRequest(`/customer/reviews/products/${normalizedOrderId(productId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating: Number(rating), comment: String(comment || '').trim() }),
+  });
+  return parseResponse(response);
+}
+

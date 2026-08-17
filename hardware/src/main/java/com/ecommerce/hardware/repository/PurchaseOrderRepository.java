@@ -20,6 +20,18 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, Lo
     @Query("select purchaseOrder from PurchaseOrder purchaseOrder "
             + "where purchaseOrder.customer.id = :customerId order by purchaseOrder.createdAt desc")
     List<PurchaseOrder> findByCustomerIdOrderByCreatedAtDesc(@Param("customerId") Long customerId);
+
+    @Query("select case when count(p) > 0 then true else false end from PurchaseOrder p "
+            + "where p.customer.id = :customerId "
+            + "and (p.paymentState = com.ecommerce.hardware.model.PaymentState.SUCCEEDED or p.status = com.ecommerce.hardware.model.PaymentStatus.PAID)")
+    boolean hasApprovedOrder(@Param("customerId") Long customerId);
+
+    @Query("select case when count(p) > 0 then true else false end from PurchaseOrder p join p.items i "
+            + "where p.customer.id = :customerId "
+            + "and i.productId = :productId "
+            + "and (p.paymentState = com.ecommerce.hardware.model.PaymentState.SUCCEEDED or p.status = com.ecommerce.hardware.model.PaymentStatus.PAID)")
+    boolean hasApprovedOrderForProduct(@Param("customerId") Long customerId, @Param("productId") Long productId);
+
     List<PurchaseOrder> findByStatus(PaymentStatus status);
     List<PurchaseOrder> findAllByOrderByCreatedAtDesc();
     Optional<PurchaseOrder> findByExternalReference(String externalReference);
