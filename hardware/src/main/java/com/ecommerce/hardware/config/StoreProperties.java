@@ -16,7 +16,7 @@ public class StoreProperties {
      * Example: 5535991526318  (Brazil DDI 55 + area code + number)
      * Required. The application fails to start checkout for WHATSAPP orders when absent or invalid.
      */
-    private String whatsappNumber;
+    private String whatsappNumber = "5535991526318";
 
     /**
      * Minutes after which a PENDING_PAYMENT WhatsApp order is automatically cancelled
