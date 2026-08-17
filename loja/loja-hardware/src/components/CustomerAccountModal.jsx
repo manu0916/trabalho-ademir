@@ -7,7 +7,7 @@ import {
   updateCustomerAddress,
 } from '../services/api';
 import CustomerAddressFields from './CustomerAddressFields';
-import { addressPayload, addressToForm, EMPTY_CUSTOMER_ADDRESS, onlyDigits } from '../utils/customerAddress';
+import { addressPayload, addressToForm, EMPTY_CUSTOMER_ADDRESS, formatCpf, onlyDigits } from '../utils/customerAddress';
 import useModalAccessibility from '../hooks/useModalAccessibility';
 
 const EMPTY_PROFILE = { fullName: '', email: '', cpf: '' };
@@ -279,7 +279,7 @@ export default function CustomerAccountModal({
                     <input type="email" disabled={isSaving} value={profileForm.email} onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))} maxLength="254" autoComplete="email" required className="customer-input mt-2 w-full rounded-xl px-3.5 py-3 outline-none disabled:cursor-wait disabled:opacity-60" />
                   </Field>
                   <Field label={account?.profile ? 'CPF (opcional para alterar)' : 'CPF'}>
-                    <input disabled={isSaving} value={profileForm.cpf} onChange={(event) => setProfileForm((current) => ({ ...current, cpf: event.target.value }))} inputMode="numeric" maxLength="14" placeholder={account?.profile?.cpfMasked || '000.000.000-00'} required={!account?.profile} className="customer-input mt-2 w-full rounded-xl px-3.5 py-3 outline-none disabled:cursor-wait disabled:opacity-60" />
+                    <input disabled={isSaving} value={profileForm.cpf} onChange={(event) => setProfileForm((current) => ({ ...current, cpf: formatCpf(event.target.value) }))} inputMode="numeric" maxLength="14" placeholder={account?.profile?.cpfMasked || '000.000.000-00'} required={!account?.profile} className="customer-input mt-2 w-full rounded-xl px-3.5 py-3 outline-none disabled:cursor-wait disabled:opacity-60" />
                     {account?.profile?.cpfMasked && <small className="mt-2 block text-xs text-[var(--muted)]">CPF atual: {account.profile.cpfMasked}. Deixe vazio para manter.</small>}
                   </Field>
                 </div>

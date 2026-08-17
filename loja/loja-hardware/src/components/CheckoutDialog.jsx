@@ -4,7 +4,7 @@ import {
   fetchCustomerAccount,
 } from '../services/api';
 import CustomerAddressFields from './CustomerAddressFields';
-import { addressPayload, addressToForm, EMPTY_CUSTOMER_ADDRESS, formatCep, isAddressComplete, onlyDigits } from '../utils/customerAddress';
+import { addressPayload, addressToForm, EMPTY_CUSTOMER_ADDRESS, formatCep, formatCpf, isAddressComplete, onlyDigits } from '../utils/customerAddress';
 import useModalAccessibility from '../hooks/useModalAccessibility';
 import {
   beginCheckoutAttempt,
@@ -265,7 +265,7 @@ export default function CheckoutDialog({
                       <div className="mt-4 grid gap-4 sm:grid-cols-2">
                         <Field label="Nome completo" className="sm:col-span-2"><input ref={fullNameRef} value={personalForm.fullName} onChange={(event) => setPersonalForm((current) => ({ ...current, fullName: event.target.value }))} minLength="5" maxLength="160" autoComplete="name" required className="checkout-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm outline-none" /></Field>
                         <Field label="E-mail"><input type="email" value={personalForm.email} onChange={(event) => setPersonalForm((current) => ({ ...current, email: event.target.value }))} maxLength="254" autoComplete="email" required className="checkout-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm outline-none" /></Field>
-                        <Field label="CPF"><input value={personalForm.cpf} onChange={(event) => setPersonalForm((current) => ({ ...current, cpf: event.target.value }))} inputMode="numeric" maxLength="14" placeholder="000.000.000-00" required className="checkout-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm outline-none" /></Field>
+                        <Field label="CPF"><input value={personalForm.cpf} onChange={(event) => setPersonalForm((current) => ({ ...current, cpf: formatCpf(event.target.value) }))} inputMode="numeric" maxLength="14" placeholder="000.000.000-00" required className="checkout-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm outline-none" /></Field>
                       </div>
                     </div>
                   )}
