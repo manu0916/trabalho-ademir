@@ -83,35 +83,14 @@ export default function ProductGrid({ products, onAddToCart, theme, searchQuery 
 
       <div id="catalog-products-grid" className="product-grid" aria-label={`Produtos: ${activeCategory.label}`}>
         {visibleProducts.map((product, index) => (
-          <motion.article
+          <ProductCard
             key={product.id}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.1 }}
-            transition={{ duration: 0.46, delay: Math.min(index * 0.06, 0.3), ease: [0.22, 1, 0.36, 1] }}
-            className={`product-card product-card-${getCardVariant(index, visibleProducts.length)} group flex flex-col justify-between overflow-hidden rounded-[1.35rem] transition-all duration-300`}
-          >
-            <ProductMediaGallery product={product} productIndex={index} theme={theme} />
-
-            <div className="product-content flex flex-grow flex-col justify-between p-5">
-              <div>
-                <span className="product-category">{getCategoryLabel(product.category, theme.category)}</span>
-                <h3 className="product-title mb-1 text-lg font-semibold transition-colors">{product.name}</h3>
-                <p className="mb-4 line-clamp-2 text-xs text-[var(--muted)]">{product.description || 'Uma escolha especial para a sua coleção.'}</p>
-              </div>
-
-              <div className="product-footer mt-auto flex items-center justify-between pt-4">
-                <div>
-                  <span className="block text-xs text-[var(--muted)]">Pagamento seguro</span>
-                  <span className="product-price text-xl font-bold">R$ {Number(product.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                  <span className={`product-stock mt-1 flex items-center gap-1.5 text-xs ${product.stockQuantity > 0 ? 'text-emerald-500' : 'text-rose-500'}`}><i />{product.stockQuantity > 0 ? `${product.stockQuantity} em estoque` : 'Esgotado'}</span>
-                </div>
-                <motion.button type="button" whileTap={{ scale: 0.96 }} onClick={() => onAddToCart(product)} disabled={product.stockQuantity < 1} className="buy-button cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45" aria-label={product.stockQuantity > 0 ? `Adicionar ${product.name} à sacola` : `${product.name} esgotado`}>
-                  <span>{product.stockQuantity > 0 ? 'Comprar' : 'Esgotado'}</span><b aria-hidden="true">+</b>
-                </motion.button>
-              </div>
-            </div>
-          </motion.article>
+            product={product}
+            index={index}
+            totalProducts={visibleProducts.length}
+            onAddToCart={onAddToCart}
+            theme={theme}
+          />
         ))}
       </div>
 
@@ -206,4 +185,113 @@ function getCardVariant(index, total) {
   if (total >= 3 && index % 6 === 0) return 'featured';
   if (index % 6 === 3) return 'portrait';
   return 'standard';
+}
+
+const AVAILABLE_SIZES = ['37', '38', '39', '40', '41', '42', '43', '44'];
+
+function getDefaultColors(product) {
+  const stock = product.stockQuantity || 0;
+  if (stock <= 0) return [{ name: 'Padrão', stock: 0, hex: '#222' }];
+
+  const stock1 = Math.max(1, Math.ceil(stock * 0.5));
+  const stock2 = Math.max(0, Math.floor(stock * 0.3));
+  const stock3 = Math.max(0, stock - stock1 - stock2);
+
+  return [
+    { name: 'Original Edition', stock: stock1, hex: '#1e1e24' },
+    ...(stock2 > 0 ? [{ name: 'Preto & Branco', stock: stock2, hex: '#000000' }] : []),
+    ...(stock3 > 0 ? [{ name: 'Edição Especial', stock: stock3, hex: '#e64a19' }] : []),
+  ];
+}
+
+function ProductCard({ product, index, totalProducts, onAddToCart, theme }) {
+  const [selectedSize, setSelectedSize] = useState('40');
+  const colors = useMemo(() => getDefaultColors(product), [product]);
+  const [selectedColor, setSelectedColor] = useState(() => colors[0]?.name || 'Padrão');
+
+  const activeColorObj = colors.find((c) => c.name === selectedColor) || colors[0];
+  const colorStock = activeColorObj?.stock ?? product.stockQuantity;
+  const isAvailable = colorStock > 0;
+
+  return (
+    <motion.article
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.1 }}
+      transition={{ duration: 0.46, delay: Math.min(index * 0.06, 0.3), ease: [0.22, 1, 0.36, 1] }}
+      className={`product-card product-card-${getCardVariant(index, totalProducts)} group flex flex-col justify-between overflow-hidden rounded-[1.35rem] transition-all duration-300`}
+    >
+      <ProductMediaGallery product={product} productIndex={index} theme={theme} />
+
+      <div className="product-content flex flex-grow flex-col justify-between p-5">
+        <div>
+          <span className="product-category">{getCategoryLabel(product.category, theme.category)}</span>
+          <h3 className="product-title mb-1 text-lg font-semibold transition-colors">{product.name}</h3>
+          <p className="mb-3 line-clamp-2 text-xs text-[var(--muted)]">{product.description || 'Uma escolha especial para a sua coleção.'}</p>
+
+          {/* Color Selector with individual stock */}
+          <div className="product-variant-section mt-3 mb-3">
+            <div className="flex items-center justify-between text-xs mb-1.5">
+              <span className="font-semibold text-[var(--muted)]">Cor: <b className="text-[var(--text)]">{selectedColor}</b></span>
+              <span className={`text-[11px] font-medium ${colorStock > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                {colorStock > 0 ? `${colorStock} un. nesta cor` : 'Esgotado'}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {colors.map((color) => (
+                <button
+                  key={color.name}
+                  type="button"
+                  onClick={() => setSelectedColor(color.name)}
+                  className={`color-pill flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${selectedColor === color.name ? 'border-[var(--accent)] bg-[var(--surface-solid)] text-[var(--text)] ring-1 ring-[var(--accent)]' : 'border-[var(--line)] text-[var(--muted)] hover:border-[var(--accent)]'}`}
+                  title={`${color.name} (${color.stock} em estoque)`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full inline-block border border-white/20" style={{ backgroundColor: color.hex }} />
+                  <span>{color.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Size Selector */}
+          <div className="product-size-section mb-4">
+            <div className="flex items-center justify-between text-xs mb-1.5">
+              <span className="font-semibold text-[var(--muted)]">Tamanho: <b className="text-[var(--text)]">{selectedSize}</b></span>
+              <span className="text-[11px] text-[var(--muted)]">Padrão BR</span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {AVAILABLE_SIZES.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => setSelectedSize(size)}
+                  className={`size-pill min-w-[2.1rem] py-1 px-1.5 text-center text-xs font-semibold rounded-lg border transition-all ${selectedSize === size ? 'bg-[var(--accent)] text-[var(--accent-ink)] border-[var(--accent)] shadow-sm font-bold' : 'border-[var(--line)] bg-[var(--surface)] text-[var(--text)] hover:border-[var(--accent)]'}`}
+                  aria-pressed={selectedSize === size}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="product-footer mt-auto flex items-center justify-between pt-3 border-t border-[var(--line)]">
+          <div>
+            <span className="block text-xs text-[var(--muted)]">Preço à vista</span>
+            <span className="product-price text-xl font-bold">R$ {Number(product.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+          </div>
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.96 }}
+            onClick={() => onAddToCart({ ...product, selectedSize, selectedColor })}
+            disabled={!isAvailable}
+            className="buy-button cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45"
+            aria-label={isAvailable ? `Adicionar ${product.name} (Tam ${selectedSize}, Cor ${selectedColor}) à sacola` : `${product.name} esgotado`}
+          >
+            <span>{isAvailable ? 'Comprar' : 'Esgotado'}</span><b aria-hidden="true">+</b>
+          </motion.button>
+        </div>
+      </div>
+    </motion.article>
+  );
 }

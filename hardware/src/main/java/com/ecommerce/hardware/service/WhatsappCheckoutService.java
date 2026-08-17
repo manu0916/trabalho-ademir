@@ -26,6 +26,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -112,7 +113,7 @@ public class WhatsappCheckoutService {
 
         return Objects.requireNonNull(
                 transactions.execute(ignored ->
-                        doStartCheckout(customer, checkoutCustomer, quantities,
+                        doStartCheckout(customer, checkoutCustomer, requestedItems, quantities,
                                 idempotencyKey, requestHash, persistence)),
                 "WhatsApp checkout transaction returned null");
     }
@@ -182,6 +183,7 @@ public class WhatsappCheckoutService {
 
     private WhatsappCheckoutResult doStartCheckout(CustomerAccount customer,
                                                    CheckoutCustomer details,
+                                                   List<RequestedItem> requestedItems,
                                                    Map<Long, Integer> quantities,
                                                    String idempotencyKey,
                                                    String requestHash,
@@ -224,7 +226,7 @@ public class WhatsappCheckoutService {
         persistence.run();
 
         // ── Load products with pessimistic write lock ─────────────────────────
-        List<Product> loadedProducts = new ArrayList<>();
+        Map<Long, Product> productMap = new HashMap<>();
         BigDecimal total = BigDecimal.ZERO;
         for (Map.Entry<Long, Integer> entry : quantities.entrySet()) {
             Product product = products.findByIdForUpdate(entry.getKey())
@@ -242,7 +244,7 @@ public class WhatsappCheckoutService {
             // Reserve stock immediately (same pattern as PaymentService)
             product.setStockQuantity(product.getStockQuantity() - qty);
             total = total.add(product.getPrice().multiply(BigDecimal.valueOf(qty)));
-            loadedProducts.add(product);
+            productMap.put(product.getId(), product);
         }
 
         // ── Create the order ─────────────────────────────────────────────────
@@ -256,10 +258,12 @@ public class WhatsappCheckoutService {
         order.setExternalReference(idempotencyKey);
         order.setCheckoutRequestHash(requestHash);
 
-        for (Product product : loadedProducts) {
-            int qty = quantities.get(product.getId());
-            String productName = product.getName().substring(0, Math.min(product.getName().length(), 180));
-            order.addItem(new PurchaseOrderItem(product.getId(), productName, qty, product.getPrice()));
+        for (RequestedItem item : requestedItems) {
+            Product product = productMap.get(item.productId());
+            if (product != null) {
+                String productName = product.getName().substring(0, Math.min(product.getName().length(), 180));
+                order.addItem(new PurchaseOrderItem(product.getId(), productName, item.quantity(), product.getPrice(), item.shoeSize(), item.colorVariant()));
+            }
         }
 
         // Compute expiry and build the wa.me URL with a placeholder id (0) — we update after flush

@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Kicks Store — Sneaker Importer",
+  "version": "1.0.0",
+  "description": "Escaneie tênis, fotos em alta resolução e envie diretamente para o catálogo da Kicks Store.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Kicks Store Importer",
+    "default_icon": {
+      "16": "icons/icon.png",
+      "32": "icons/icon.png",
+      "48": "icons/icon.png",
+      "128": "icons/icon.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon.png",
+    "32": "icons/icon.png",
+    "48": "icons/icon.png",
+    "128": "icons/icon.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

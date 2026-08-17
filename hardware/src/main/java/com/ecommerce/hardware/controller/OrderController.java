@@ -44,7 +44,7 @@ public class OrderController {
                 order.getStreet(), order.getAddressNumber(), order.getComplement(), order.getTotal(),
                 order.getStatus().name(), order.getCreatedAt(),
                 order.getItems().stream().map(item -> new OrderItemResponse(item.getProductId(), item.getProductName(),
-                        item.getQuantity(), item.getUnitPrice())).toList());
+                        item.getQuantity(), item.getUnitPrice(), item.getShoeSize(), item.getColorVariant())).toList());
     }
 
     private static String maskCpf(String cpf) {
@@ -57,5 +57,5 @@ public class OrderController {
                                 java.time.Instant createdAt,
                                 List<OrderItemResponse> items) { }
 
-    public record OrderItemResponse(Long productId, String productName, Integer quantity, BigDecimal unitPrice) { }
+    public record OrderItemResponse(Long productId, String productName, Integer quantity, BigDecimal unitPrice, String shoeSize, String colorVariant) { }
 }

@@ -150,7 +150,12 @@ export default function CheckoutDialog({
     if (addressMode === 'saved' && !account?.addresses?.some((address) => String(address.id) === selectedAddressId)) return setError('Selecione um endereço de entrega.');
     if (addressMode === 'new' && !isAddressComplete(newAddress, saveNewAddress)) return setError('Preencha todos os dados do novo endereço.');
 
-    const items = cartItems.map((item) => ({ productId: item.id, quantity: item.quantity }));
+    const items = cartItems.map((item) => ({
+      productId: item.id,
+      quantity: item.quantity,
+      shoeSize: item.selectedSize || '40',
+      colorVariant: item.selectedColor || 'Original Edition',
+    }));
     let attempt;
     try {
       attempt = beginCheckoutAttempt(items);

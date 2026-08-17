@@ -102,7 +102,7 @@ public class PaymentController {
                 resolved.profileTarget(), resolved.addressTarget(), resolved.defaultAddressTarget(),
                 resolved.addressLabel());
         List<RequestedItem> items = request.items().stream()
-                .map(item -> new RequestedItem(item.productId(), item.quantity())).toList();
+                .map(item -> new RequestedItem(item.productId(), item.quantity(), item.shoeSize(), item.colorVariant())).toList();
 
         if (isStripeMethod) {
             CheckoutCustomer details = new CheckoutCustomer(resolved.fullName(), resolved.email(), resolved.cpf(),
@@ -233,7 +233,10 @@ public class PaymentController {
                                   @NotNull @Size(min = 1, max = 100)
                                   List<@NotNull @Valid CheckoutItemRequest> items) { }
 
-    public record CheckoutItemRequest(@NotNull Long productId, @NotNull @Positive Integer quantity) { }
+    public record CheckoutItemRequest(@NotNull Long productId,
+                                      @NotNull @Positive Integer quantity,
+                                      @Size(max = 20) String shoeSize,
+                                      @Size(max = 60) String colorVariant) { }
     public record CheckoutResponse(Long orderId, String checkoutUrl, String whatsappUrl) { }
     public record PaymentMethodsResponse(List<String> methods) { }
     public record PaymentErrorResponse(String code, String message) { }

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kicks Store Importer</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <img src="icons/icon.png" alt="Logo" class="brand-logo">
+        <div>
+          <h1 class="brand-title">Kicks Store</h1>
+          <span class="brand-subtitle">Sneaker Importer</span>
+        </div>
+      </div>
+      <div class="header-status">
+        <span id="connectionDot" class="status-dot is-offline" title="Status da API"></span>
+        <button id="toggleSettingsBtn" class="icon-button" title="Configurações">⚙️</button>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="app-nav">
+      <button id="tabScanner" class="nav-tab is-active">👟 Importador</button>
+      <button id="tabSettings" class="nav-tab">⚙️ Conexão API</button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+      
+      <!-- SCANNER TAB -->
+      <section id="scannerView" class="tab-view is-active">
+        
+        <!-- Scan Trigger Banner -->
+        <div class="scan-bar">
+          <button id="scanPageBtn" class="btn btn-scan">
+            <span class="btn-icon">🔍</span> Escanear Tênis Nesta Página
+          </button>
+        </div>
+
+        <!-- Feedback & Status -->
+        <div id="statusMessage" class="status-card is-hidden"></div>
+
+        <!-- Product Preview Form (Revealed after scan or manual entry) -->
+        <div id="productForm" class="product-form is-hidden">
+          
+          <!-- Image Gallery Selector -->
+          <div class="form-section">
+            <div class="section-header">
+              <label class="section-label">Galeria de Fotos (<span id="selectedImagesCount">0</span> selecionadas)</label>
+              <button type="button" id="selectAllImagesBtn" class="text-link">Selecionar todas</button>
+            </div>
+            <div id="imageGallery" class="image-gallery-grid"></div>
+            <small class="field-hint">A 1ª foto selecionada será a capa principal da vitrine.</small>
+          </div>
+
+          <!-- Product Details Fields -->
+          <div class="form-group">
+            <label for="productName" class="form-label">Nome do Tênis *</label>
+            <input type="text" id="productName" class="form-input" required maxlength="120" placeholder="Ex: Nike Air Jordan 1 High">
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="productPrice" class="form-label">Preço (R$) *</label>
+              <input type="number" id="productPrice" class="form-input" step="0.01" min="0.01" required placeholder="Ex: 899.90">
+            </div>
+            <div class="form-group flex-1">
+              <label for="productStock" class="form-label">Estoque *</label>
+              <input type="number" id="productStock" class="form-input" min="0" step="1" required value="10">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="productCategory" class="form-label">Categoria Esportiva *</label>
+            <select id="productCategory" class="form-select" required>
+              <option value="Basquete">🏀 Basquete</option>
+              <option value="Vôlei">🏐 Vôlei</option>
+              <option value="Handball">🤾 Handball</option>
+              <option value="Futsal">⚽ Futsal</option>
+              <option value="Futebol">🌱 Futebol</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="productDescription" class="form-label">Descrição curta</label>
+            <textarea id="productDescription" class="form-textarea" rows="3" maxlength="2000" placeholder="Detalhes de amortecimento, tração e estilo..."></textarea>
+          </div>
+
+          <!-- Action Submit Button -->
+          <div class="form-actions">
+            <button type="button" id="submitProductBtn" class="btn btn-primary">
+              <span class="btn-icon">🚀</span> Enviar para a Kicks Store
+            </button>
+          </div>
+
+        </div>
+
+        <!-- Empty Placeholder when not scanned yet -->
+        <div id="emptyState" class="empty-state">
+          <div class="empty-icon">👟</div>
+          <p class="empty-title">Nenhum tênis escaneado ainda</p>
+          <p class="empty-desc">Abra uma página de tênis (Nike, Centauro, Netshoes, etc.) e clique em <b>"Escanear Tênis"</b> acima.</p>
+        </div>
+
+      </section>
+
+      <!-- SETTINGS TAB -->
+      <section id="settingsView" class="tab-view">
+        <div class="settings-card">
+          <h2 class="settings-title">Configurações de Conexão</h2>
+          <p class="settings-desc">Conecte a extensão ao backend da sua loja Kicks Store.</p>
+
+          <div class="form-group">
+            <label for="apiUrl" class="form-label">URL da API (Back-end)</label>
+            <input type="url" id="apiUrl" class="form-input" placeholder="http://localhost:8080 ou https://sua-api.onrender.com" value="http://localhost:8080">
+            <small class="field-hint">Use localhost:8080 no desenvolvimento ou sua URL no Render em produção.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="adminEmail" class="form-label">E-mail do Administrador</label>
+            <input type="email" id="adminEmail" class="form-input" placeholder="admin@example.test" value="admin@example.test">
+          </div>
+
+          <div class="form-group">
+            <label for="adminPassword" class="form-label">Senha do Administrador</label>
+            <input type="password" id="adminPassword" class="form-input" placeholder="••••••••••••" value="password1234">
+          </div>
+
+          <div class="settings-actions">
+            <button type="button" id="testConnectionBtn" class="btn btn-secondary">
+              ⚡ Testar Conexão
+            </button>
+            <button type="button" id="saveSettingsBtn" class="btn btn-primary">
+              Salvar Configurações
+            </button>
+          </div>
+
+          <div id="settingsFeedback" class="status-card is-hidden"></div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span>Kicks Store Brasil • v1.0.0</span>
+      <a href="http://localhost:5173" id="openStoreLink" target="_blank" class="footer-link">Abrir Vitrine ↗</a>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

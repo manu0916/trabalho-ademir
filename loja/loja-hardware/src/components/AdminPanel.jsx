@@ -262,7 +262,19 @@ export default function AdminPanel({
                 </div>
                 <div className="order-details mt-4 grid gap-4 border-t pt-4 md:grid-cols-2">
                   <div><p className="order-label">Endereço de entrega</p><p className="mt-1 text-sm font-semibold text-[var(--text)]">{order.street}, {order.addressNumber} — {order.neighborhood}</p><p className="text-sm text-[var(--muted)]">{order.city}/{order.state} · CEP {order.postalCode?.replace(/(\d{5})(\d{3})/, '$1-$2')}</p></div>
-                  <div><p className="order-label">Itens do pedido</p><ul className="mt-1 space-y-1 text-sm text-[var(--muted)]">{(order.items ?? []).map((item) => <li key={`${order.id}-${item.productName}`}>{item.quantity}× {item.productName} <span className="text-[var(--text)]">— R$ {Number(item.unitPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></li>)}</ul></div>
+                  <div>
+                    <p className="order-label">Itens do pedido</p>
+                    <ul className="mt-1.5 space-y-2 text-sm text-[var(--muted)]">
+                      {(order.items ?? []).map((item, itemIdx) => (
+                        <li key={`${order.id}-${item.productName}-${itemIdx}`} className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-semibold text-[var(--text)]">{item.quantity}× {item.productName}</span>
+                          {item.shoeSize && <span className="inline-block text-[11px] font-semibold bg-[var(--surface-solid)] px-2 py-0.5 rounded border border-[var(--line)] text-[var(--text)]">Tam: {item.shoeSize}</span>}
+                          {item.colorVariant && <span className="inline-block text-[11px] font-semibold bg-[var(--surface-solid)] px-2 py-0.5 rounded border border-[var(--line)] text-[var(--text)]">Cor: {item.colorVariant}</span>}
+                          <span className="text-[var(--text)]">— R$ {Number(item.unitPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
                 {canRefundOrder(order) && (
                   <div className="order-payment-actions mt-4 border-t pt-4">

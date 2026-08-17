@@ -161,7 +161,9 @@ create table if not exists public.purchase_order_items (
   product_id bigint,
   product_name varchar(180) not null,
   quantity integer not null check (quantity between 1 and 99),
-  unit_price numeric(12, 2) not null check (unit_price >= 0)
+  unit_price numeric(12, 2) not null check (unit_price >= 0),
+  shoe_size varchar(20),
+  color_variant varchar(60)
 );
 
 create table if not exists public.payment_webhook_events (

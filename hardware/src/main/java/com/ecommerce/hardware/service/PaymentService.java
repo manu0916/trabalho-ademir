@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -103,7 +104,7 @@ public class PaymentService {
         ensureCheckoutAttempt(idempotencyKey, customer.getId(), requestHash);
 
         CheckoutPreparation preparation = required(transactions.execute(ignored -> prepareCheckout(
-                customer, checkoutCustomer, quantities, idempotencyKey, requestHash, legacyRequestHash,
+                customer, checkoutCustomer, requestedItems, quantities, idempotencyKey, requestHash, legacyRequestHash,
                 persistence)));
         if (preparation.replay() != null) return preparation.replay();
         if (preparation.inProgress()) {
@@ -558,6 +559,7 @@ public class PaymentService {
     }
 
     private CheckoutPreparation prepareCheckout(CustomerAccount customer, CheckoutCustomer details,
+                                                List<RequestedItem> requestedItems,
                                                 Map<Long, Integer> quantities, String key, String requestHash,
                                                 String legacyRequestHash,
                                                 Runnable persistAcceptedCheckout) {
@@ -602,6 +604,7 @@ public class PaymentService {
         order.setCheckoutRequestHash(requestHash);
 
         BigDecimal total = BigDecimal.ZERO;
+        Map<Long, Product> productMap = new HashMap<>();
         List<StripePaymentGateway.CheckoutItem> gatewayItems = new ArrayList<>();
         for (Map.Entry<Long, Integer> entry : quantities.entrySet()) {
             Product product = products.findByIdForUpdate(entry.getKey())
@@ -614,10 +617,17 @@ public class PaymentService {
             }
             product.setStockQuantity(product.getStockQuantity() - quantity);
             total = total.add(product.getPrice().multiply(BigDecimal.valueOf(quantity)));
-            String productName = product.getName().substring(0, Math.min(product.getName().length(), 180));
-            order.addItem(new PurchaseOrderItem(product.getId(), productName, quantity, product.getPrice()));
-            gatewayItems.add(new StripePaymentGateway.CheckoutItem(product.getId(), productName, quantity,
-                    product.getPrice(), null));
+            productMap.put(product.getId(), product);
+        }
+
+        for (RequestedItem item : requestedItems) {
+            Product product = productMap.get(item.productId());
+            if (product != null) {
+                String productName = product.getName().substring(0, Math.min(product.getName().length(), 180));
+                order.addItem(new PurchaseOrderItem(product.getId(), productName, item.quantity(), product.getPrice(), item.shoeSize(), item.colorVariant()));
+                gatewayItems.add(new StripePaymentGateway.CheckoutItem(product.getId(), productName, item.quantity(),
+                        product.getPrice(), null));
+            }
         }
 
         validateProviderAmount(details.paymentMethod(), total);
@@ -1430,7 +1440,11 @@ public class PaymentService {
             return new CheckoutPersistenceIntent(false, false, false, null);
         }
     }
-    public record RequestedItem(Long productId, Integer quantity) { }
+    public record RequestedItem(Long productId, Integer quantity, String shoeSize, String colorVariant) {
+        public RequestedItem(Long productId, Integer quantity) {
+            this(productId, quantity, null, null);
+        }
+    }
     public record CheckoutResult(Long orderId, String checkoutUrl) { }
     public record PaymentView(Long orderId, String status, String paymentMethod, String paymentProvider,
                                boolean paymentVerified, boolean canCancel, BigDecimal total, BigDecimal refundedAmount,

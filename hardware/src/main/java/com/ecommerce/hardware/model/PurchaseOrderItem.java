@@ -34,14 +34,26 @@ public class PurchaseOrderItem {
     @Column(name = "unit_price", nullable = false, precision = 12, scale = 2)
     private BigDecimal unitPrice;
 
+    @Column(name = "shoe_size", length = 20)
+    private String shoeSize;
+
+    @Column(name = "color_variant", length = 60)
+    private String colorVariant;
+
     protected PurchaseOrderItem() {
     }
 
     public PurchaseOrderItem(Long productId, String productName, Integer quantity, BigDecimal unitPrice) {
+        this(productId, productName, quantity, unitPrice, null, null);
+    }
+
+    public PurchaseOrderItem(Long productId, String productName, Integer quantity, BigDecimal unitPrice, String shoeSize, String colorVariant) {
         this.productId = productId;
         this.productName = productName;
         this.quantity = quantity;
         this.unitPrice = unitPrice;
+        this.shoeSize = shoeSize;
+        this.colorVariant = colorVariant;
     }
 
     void setPurchaseOrder(PurchaseOrder purchaseOrder) {
@@ -52,4 +64,6 @@ public class PurchaseOrderItem {
     public String getProductName() { return productName; }
     public Integer getQuantity() { return quantity; }
     public BigDecimal getUnitPrice() { return unitPrice; }
+    public String getShoeSize() { return shoeSize; }
+    public String getColorVariant() { return colorVariant; }
 }

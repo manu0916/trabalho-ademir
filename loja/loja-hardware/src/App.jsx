@@ -325,20 +325,28 @@ export default function App() {
   };
 
   const handleAddToCart = (product) => {
+    const selectedSize = product.selectedSize || '40';
+    const selectedColor = product.selectedColor || 'Original Edition';
+    const cartKey = `${product.id}-${selectedSize}-${selectedColor}`;
+
     setCart((previous) => {
-      const existingProduct = previous.find((item) => item.id === product.id);
-      if (!existingProduct) return [...previous, { ...product, quantity: 1 }];
+      const existingProduct = previous.find((item) => (item.cartKey ? item.cartKey === cartKey : item.id === product.id));
+      if (!existingProduct) {
+        return [...previous, { ...product, cartKey, selectedSize, selectedColor, quantity: 1 }];
+      }
 
       if (existingProduct.quantity >= product.stockQuantity) return previous;
 
       return previous.map((item) => (
-        item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+        (item.cartKey === cartKey || (!item.cartKey && item.id === product.id))
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
       ));
     });
   };
 
-  const handleRemoveFromCart = (productId) => {
-    setCart((previous) => previous.filter((item) => item.id !== productId));
+  const handleRemoveFromCart = (cartKeyOrId) => {
+    setCart((previous) => previous.filter((item) => (item.cartKey ? item.cartKey !== cartKeyOrId : item.id !== cartKeyOrId)));
   };
 
   const handleLogout = async () => {

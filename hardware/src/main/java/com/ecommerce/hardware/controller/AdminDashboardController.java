@@ -62,7 +62,7 @@ public class AdminDashboardController {
                 order.getStatus().name(), order.getPaymentProvider().name(), order.isPaymentVerified(),
                 order.getWhatsappUrl(), canConfirmWhatsapp, canCancelWhatsapp,
                 order.getPaidAt(), order.getPaymentUpdatedAt(), order.getCreatedAt(),
-                order.getItems().stream().map(item -> new AdminOrderItemResponse(item.getProductName(), item.getQuantity(), item.getUnitPrice())).toList());
+                order.getItems().stream().map(item -> new AdminOrderItemResponse(item.getProductName(), item.getQuantity(), item.getUnitPrice(), item.getShoeSize(), item.getColorVariant())).toList());
     }
 
     private static String maskCpf(String cpf) {
@@ -78,5 +78,5 @@ public class AdminDashboardController {
                                      String whatsappUrl, boolean canConfirmWhatsapp, boolean canCancelWhatsapp,
                                      java.time.Instant paidAt, java.time.Instant paymentUpdatedAt, java.time.Instant createdAt,
                                      List<AdminOrderItemResponse> items) { }
-    public record AdminOrderItemResponse(String productName, Integer quantity, BigDecimal unitPrice) { }
+    public record AdminOrderItemResponse(String productName, Integer quantity, BigDecimal unitPrice, String shoeSize, String colorVariant) { }
 }

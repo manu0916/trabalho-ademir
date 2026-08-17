@@ -59,16 +59,20 @@ export default function CartDrawer({ isOpen, onClose, cartItems, onRemoveItem, o
                   </div>
                 ) : (
                   cartItems.map((item) => (
-                    <article key={item.id} className="cart-item flex items-center gap-4 rounded-2xl p-3">
+                    <article key={item.cartKey || item.id} className="cart-item flex items-center gap-4 rounded-2xl p-3">
                       <div className="cart-item-image flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl">
                         <img src={item.imageUrl} alt="" onError={handleImageError} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <h3 className="line-clamp-1 text-sm font-semibold text-[var(--text)]">{item.name}</h3>
-                        <span className="text-xs text-[var(--muted)]">Quantidade {item.quantity}</span>
+                        <div className="cart-item-specs flex flex-wrap items-center gap-1.5 mt-0.5">
+                          {item.selectedSize && <span className="inline-block text-[11px] font-semibold bg-[var(--surface-solid)] px-1.5 py-0.5 rounded border border-[var(--line)] text-[var(--text)]">Tam: {item.selectedSize}</span>}
+                          {item.selectedColor && <span className="inline-block text-[11px] font-semibold bg-[var(--surface-solid)] px-1.5 py-0.5 rounded border border-[var(--line)] text-[var(--text)]">Cor: {item.selectedColor}</span>}
+                        </div>
+                        <span className="text-xs text-[var(--muted)] block mt-0.5">Quantidade {item.quantity}</span>
                         <p className="mt-1 text-sm font-bold text-[var(--accent)]">R$ {(Number(item.price) * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                       </div>
-                      <button type="button" onClick={() => onRemoveItem(item.id)} className="cart-remove" aria-label={`Remover ${item.name} da sacola`}>Remover</button>
+                      <button type="button" onClick={() => onRemoveItem(item.cartKey || item.id)} className="cart-remove" aria-label={`Remover ${item.name} da sacola`}>Remover</button>
                     </article>
                   ))
                 )}
