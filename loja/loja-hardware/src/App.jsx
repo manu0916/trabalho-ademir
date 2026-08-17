@@ -10,6 +10,7 @@ import AdminPanel from './components/AdminPanel';
 import AdminLogin from './components/AdminLogin';
 import StoreHero from './components/StoreHero';
 import StoreReviewsSection from './components/StoreReviewsSection';
+import FaqSection from './components/FaqSection';
 import BrandFooter from './components/BrandFooter';
 import PaymentStatusPage from './components/PaymentStatusPage';
 import { STORE_THEME } from './themes';
@@ -559,6 +560,7 @@ export default function App() {
               customerSession={customerSession}
               onOpenLogin={() => setIsCustomerAccessOpen(true)}
             />
+            <FaqSection customerSession={customerSession} />
             <BrandFooter storeName={storeName} theme={theme} />
           </>
         ) : adminSession === undefined ? (

@@ -527,3 +527,32 @@ export async function submitProductReview(productId, { rating, comment }) {
   return parseResponse(response);
 }
 
+export async function sendSupportMessage({ fullName, email, subject, message }) {
+  const response = await request('/support/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      fullName: String(fullName || '').trim(),
+      email: String(email || '').trim().toLowerCase(),
+      subject: String(subject || '').trim(),
+      message: String(message || '').trim(),
+    }),
+  });
+  return parseResponse(response);
+}
+
+export async function fetchAdminSupportMessages() {
+  const response = await adminRequest('/admin/support/messages');
+  return parseResponse(response);
+}
+
+export async function updateSupportMessageStatus(messageId, status) {
+  const response = await adminRequest(`/admin/support/messages/${normalizedOrderId(messageId)}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: String(status || '').toUpperCase() }),
+  });
+  return parseResponse(response);
+}
+
+

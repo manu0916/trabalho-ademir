@@ -20,6 +20,12 @@ export default function BrandFooter({ storeName, theme }) {
 
         <div className="brand-footer-wordmark" aria-label={storeName}>{storeName}</div>
 
+        <div className="flex flex-wrap items-center justify-center gap-6 my-6 text-xs font-semibold text-[var(--muted)]">
+          <a href="#products" className="hover:text-[var(--accent)] transition-colors">Tênis &amp; Coleções</a>
+          <a href="#reviews" className="hover:text-[var(--accent)] transition-colors">Avaliações Verificadas</a>
+          <a href="#faq" className="hover:text-[var(--accent)] transition-colors">Dúvidas Frequentes &amp; SAC</a>
+        </div>
+
         <div className="brand-footer-meta">
           <span>{theme.rail}</span>
           <span>Compra segura · Atendimento humano</span>

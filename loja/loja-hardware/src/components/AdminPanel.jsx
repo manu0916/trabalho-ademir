@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import HeroGallerySettings from './HeroGallerySettings';
 import ProductImagePicker from './ProductImagePicker';
 import { paymentMethodLabel, paymentStatusMeta } from '../services/paymentStatus';
 import { releaseImagePreviewUrls } from '../utils/imagePreparation';
 import { PRODUCT_CATEGORIES } from '../utils/catalogCategories';
+import { fetchAdminSupportMessages, updateSupportMessageStatus } from '../services/api';
 
 const REFUNDABLE_STATUSES = new Set(['PAID', 'PARTIALLY_REFUNDED', 'REFUND_FAILED', 'FULFILLMENT_REVIEW_REQUIRED']);
 
@@ -62,6 +63,41 @@ export default function AdminPanel({
   const [isPreparingProductImages, setIsPreparingProductImages] = useState(false);
   const [productFormError, setProductFormError] = useState('');
   const [productFormMessage, setProductFormMessage] = useState('');
+
+  // Support Messages (SAC / FAQ)
+  const [supportMessages, setSupportMessages] = useState([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [updatingMessageId, setUpdatingMessageId] = useState(null);
+  const [messageFilter, setMessageFilter] = useState('ALL'); // 'ALL' | 'PENDING' | 'ANSWERED'
+
+  const loadMessages = useCallback(async () => {
+    setIsLoadingMessages(true);
+    try {
+      const list = await fetchAdminSupportMessages();
+      if (Array.isArray(list)) setSupportMessages(list);
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMessages();
+  }, [loadMessages]);
+
+  const handleToggleMessageStatus = async (msg) => {
+    const nextStatus = msg.status === 'ANSWERED' ? 'PENDING' : 'ANSWERED';
+    setUpdatingMessageId(msg.id);
+    try {
+      const updated = await updateSupportMessageStatus(msg.id, nextStatus);
+      setSupportMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, status: updated.status } : m)));
+    } catch (err) {
+      alert(err.message || 'Não foi possível atualizar o status da mensagem.');
+    } finally {
+      setUpdatingMessageId(null);
+    }
+  };
 
   const handleProductSubmit = async (event) => {
     event.preventDefault();
@@ -303,6 +339,83 @@ export default function AdminPanel({
             );
           })}
           {dashboard && dashboard.orders.length === 0 && <p className="empty-state py-6 text-center text-sm">Nenhum pedido registrado ainda.</p>}
+        </div>
+      </section>
+
+      {/* Support Messages Section (SAC & FAQ Inquiries) */}
+      <section className="admin-card mt-8 rounded-3xl p-6 sm:p-8">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <p className="section-kicker">Central de Atendimento (SAC)</p>
+            <h2 className="text-xl font-extrabold text-[var(--text)]">Mensagens & Dúvidas dos Clientes</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {['ALL', 'PENDING', 'ANSWERED'].map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                onClick={() => setMessageFilter(filter)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors ${messageFilter === filter ? 'bg-[var(--accent)] text-[var(--accent-ink)] border-[var(--accent)]' : 'border-[var(--line)] bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--text)]'}`}
+              >
+                {filter === 'ALL' ? `Todas (${supportMessages.length})` : filter === 'PENDING' ? `Pendentes (${supportMessages.filter((m) => m.status === 'PENDING').length})` : `Respondidas (${supportMessages.filter((m) => m.status === 'ANSWERED').length})`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-4">
+          {isLoadingMessages ? (
+            <p className="py-8 text-center text-xs text-[var(--muted)]">Carregando mensagens do suporte...</p>
+          ) : supportMessages.filter((m) => messageFilter === 'ALL' || m.status === messageFilter).length === 0 ? (
+            <p className="empty-state py-8 text-center text-xs text-[var(--muted)]">Nenhuma mensagem encontrada neste filtro.</p>
+          ) : (
+            supportMessages
+              .filter((m) => messageFilter === 'ALL' || m.status === messageFilter)
+              .map((msg) => {
+                const isPending = msg.status === 'PENDING';
+                return (
+                  <article key={msg.id} className="order-card rounded-2xl p-5">
+                    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full ${isPending ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'}`}>
+                            {isPending ? '⏳ Pendente' : '✓ Respondida'}
+                          </span>
+                          <span className="text-xs text-[var(--muted)]">
+                            {msg.createdAt ? new Date(msg.createdAt).toLocaleString('pt-BR') : 'Recente'}
+                          </span>
+                        </div>
+                        <h3 className="mt-2 text-base font-bold text-[var(--text)]">{msg.subject}</h3>
+                        <p className="mt-0.5 text-xs text-[var(--muted)]">
+                          De: <strong className="text-[var(--text)]">{msg.fullName}</strong> ({msg.email})
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 pt-2 sm:pt-0">
+                        <a
+                          href={`mailto:${encodeURIComponent(msg.email)}?subject=${encodeURIComponent(`Re: ${msg.subject} - Kicks Store`)}`}
+                          className="admin-primary inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer"
+                        >
+                          ✉ Responder por E-mail
+                        </a>
+                        <button
+                          type="button"
+                          disabled={updatingMessageId === msg.id}
+                          onClick={() => handleToggleMessageStatus(msg)}
+                          className="refund-button px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer disabled:opacity-50"
+                        >
+                          {updatingMessageId === msg.id ? 'Atualizando...' : isPending ? 'Marcar como respondida' : 'Reabrir como pendente'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-xl bg-[var(--bg)] p-4 border border-[var(--line)]/50 text-xs text-[var(--text)] whitespace-pre-line leading-relaxed">
+                      {msg.message}
+                    </div>
+                  </article>
+                );
+              })
+          )}
         </div>
       </section>
     </div>
