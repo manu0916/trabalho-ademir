@@ -14,6 +14,10 @@ export default function BrandFooter({ storeName, theme }) {
           </button>
         </div>
 
+        <div className="brand-footer-logo my-8 flex flex-col items-center justify-center">
+          <img src="/kicks-store-logo.jpg" alt={storeName} className="h-28 w-auto max-w-[280px] rounded-2xl object-contain shadow-2xl border border-[var(--line)] bg-[var(--surface-solid)] transition-transform hover:scale-105 duration-300" />
+        </div>
+
         <div className="brand-footer-wordmark" aria-label={storeName}>{storeName}</div>
 
         <div className="brand-footer-meta">

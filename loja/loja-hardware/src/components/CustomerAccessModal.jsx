@@ -69,12 +69,13 @@ export default function CustomerAccessModal({
 
   return (
     <div data-modal-root="true" onMouseDown={(event) => { if (event.target === event.currentTarget) requestClose(); }} className="customer-overlay fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto p-4 py-6 sm:items-center">
-      <form ref={dialogRef} tabIndex="-1" onSubmit={handleSubmit} aria-busy={isSubmitting} role="dialog" aria-modal="true" aria-labelledby="customer-access-title" aria-describedby="customer-access-description" className="customer-access-card w-full max-w-md rounded-[1.65rem] p-6 shadow-2xl sm:p-7">
-        {onClose ? (
+      <form ref={dialogRef} tabIndex="-1" onSubmit={handleSubmit} aria-busy={isSubmitting} role="dialog" aria-modal="true" aria-labelledby="customer-access-title" aria-describedby="customer-access-description" className="customer-access-card relative w-full max-w-md rounded-[1.65rem] p-6 shadow-2xl sm:p-7">
+        {onClose && (
           <button type="button" onClick={requestClose} disabled={isSubmitting} className="close-checkout absolute right-4 top-4 z-10 text-2xl disabled:cursor-wait disabled:opacity-40" aria-label={checkoutRequired ? 'Fechar e voltar para a sacola' : 'Fechar acesso à conta'}>×</button>
-        ) : (
-          <div className="customer-card-mark" aria-hidden="true"><span>✦</span><i /></div>
         )}
+        <div className="mb-4 flex items-center justify-center">
+          <img src="/kicks-store-logo.jpg" alt="Kicks Store" className="h-16 w-16 rounded-2xl object-contain shadow-lg border border-[var(--line)] bg-[var(--surface-solid)]" />
+        </div>
         <p className={`section-kicker ${onClose ? 'pr-12' : ''}`}>{checkoutRequired ? 'Sua sacola está pronta' : `Olá, você está na ${storeName}`}</p>
         <h2 id="customer-access-title" className="mt-2 text-3xl font-extrabold text-[var(--text)]">
           {checkoutRequired

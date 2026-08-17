@@ -32,6 +32,9 @@ export default function AdminLogin({ onAuthenticated, storeName, theme }) {
         </div>
 
         <div className="admin-login-card rounded-[1.65rem] p-6 shadow-2xl sm:p-8">
+          <div className="mb-4">
+            <img src="/kicks-store-logo.jpg" alt={storeName} className="h-14 w-auto rounded-xl object-contain shadow-md border border-[var(--line)] bg-[var(--surface-solid)]" />
+          </div>
           <p className="section-kicker">Área restrita · {storeName}</p>
           <h2 className="mt-2 text-3xl font-extrabold text-[var(--text)]">Bem-vindo de volta.</h2>
           <p className="mt-3 text-sm leading-6 text-[var(--muted)]">Use suas credenciais para cuidar da vitrine, dos pedidos e do estoque.</p>

@@ -306,7 +306,10 @@ export default function PaymentStatusPage({
 
   return (
     <main id="main-content" className="payment-return">
-      <div className="payment-return-brand"><span aria-hidden="true">{storeName?.charAt(0) || 'K'}</span><strong>{storeName}</strong></div>
+      <div className="payment-return-brand">
+        <img src="/kicks-store-logo.jpg" alt={storeName} className="h-9 w-9 rounded-xl object-contain shadow-sm border border-[var(--line)] bg-[var(--surface-solid)]" />
+        <strong>{storeName}</strong>
+      </div>
       <section className={`payment-status-card payment-status-${headlineError ? 'danger' : meta.tone}`} aria-live="polite" aria-busy={isLoading}>
         <div className="payment-status-symbol" aria-hidden="true">
           {isLoading ? <span className="payment-status-spinner" /> : isPaymentVerified && meta.tone === 'success' ? '✓' : meta.tone === 'danger' ? '!' : meta.tone === 'neutral' ? '×' : '…'}
