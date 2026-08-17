@@ -7,9 +7,12 @@ import {
   getCategoryId,
   getCategoryLabel,
 } from '../utils/catalogCategories';
+import ProductDetailModal from './ProductDetailModal';
 
 export default function ProductGrid({ products, onAddToCart, theme, searchQuery = '', onClearSearch }) {
   const [activeCategoryId, setActiveCategoryId] = useState(ALL_CATEGORIES_ID);
+  const [selectedProductForDetail, setSelectedProductForDetail] = useState(null);
+
   const categoryCounts = useMemo(() => {
     const counts = Object.fromEntries(CATALOG_CATEGORIES.map((category) => [category.id, 0]));
     counts[ALL_CATEGORIES_ID] = products.length;
@@ -19,11 +22,13 @@ export default function ProductGrid({ products, onAddToCart, theme, searchQuery 
     });
     return counts;
   }, [products]);
+
   const visibleProducts = useMemo(() => (
     activeCategoryId === ALL_CATEGORIES_ID
       ? products
       : products.filter((product) => getCategoryId(product.category) === activeCategoryId)
   ), [activeCategoryId, products]);
+
   const activeCategory = CATALOG_CATEGORIES.find((category) => category.id === activeCategoryId) ?? CATALOG_CATEGORIES[0];
   const hasSearch = searchQuery.trim().length > 0;
   const activeScope = activeCategoryId === ALL_CATEGORIES_ID ? 'no catálogo completo' : `em ${activeCategory.label}`;
@@ -88,11 +93,19 @@ export default function ProductGrid({ products, onAddToCart, theme, searchQuery 
             product={product}
             index={index}
             totalProducts={visibleProducts.length}
-            onAddToCart={onAddToCart}
+            onOpenDetail={() => setSelectedProductForDetail(product)}
             theme={theme}
           />
         ))}
       </div>
+
+      <ProductDetailModal
+        product={selectedProductForDetail}
+        isOpen={Boolean(selectedProductForDetail)}
+        onClose={() => setSelectedProductForDetail(null)}
+        onAddToCart={onAddToCart}
+        theme={theme}
+      />
 
       {visibleProducts.length === 0 && (
         <div className="catalog-empty" role="status">
@@ -138,7 +151,8 @@ function ProductMediaGallery({ product, productIndex, theme }) {
     setFailedImageKeys((current) => current.includes(activeImage.key) ? current : [...current, activeImage.key]);
     setAnnouncement(remainingCount > 0
       ? `Uma foto não pôde ser carregada. Exibindo foto ${(activeIndex % remainingCount) + 1} de ${remainingCount} de ${product.name}.`
-      : `As fotos de ${product.name} não puderam ser carregadas.`);
+      : `Não foi possível carregar as fotos de ${product.name}.`);
+    setActiveIndex((current) => (remainingCount > 0 ? current % remainingCount : 0));
     if (shouldRestoreFocus) {
       window.requestAnimationFrame(() => galleryRef.current?.focus());
     }
@@ -147,29 +161,41 @@ function ProductMediaGallery({ product, productIndex, theme }) {
   return (
     <div
       ref={galleryRef}
-      className={`product-image relative flex items-center justify-center overflow-hidden ${activeImage ? '' : 'image-unavailable'}`}
-      role="group"
-      aria-roledescription="carrossel"
-      aria-label={`Galeria de fotos de ${product.name}`}
-      tabIndex="-1"
+      tabIndex={hasGallery ? 0 : -1}
+      role={hasGallery ? 'region' : undefined}
+      aria-label={hasGallery ? `Galeria de fotos de ${product.name}` : undefined}
+      onKeyDown={(event) => {
+        if (!hasGallery) return;
+        if (event.key === 'ArrowRight') {
+          event.preventDefault();
+          selectImage((normalizedIndex + 1) % images.length);
+        } else if (event.key === 'ArrowLeft') {
+          event.preventDefault();
+          selectImage((normalizedIndex - 1 + images.length) % images.length);
+        }
+      }}
+      className="product-media relative flex h-72 w-full items-center justify-center overflow-hidden"
     >
-      {activeImage && (
+      <div className="product-media-backdrop" aria-hidden="true" />
+      {activeImage ? (
         <img
           key={activeImage.key}
           src={activeImage.imageUrl}
-          alt={activeImage.altText || (hasGallery ? `${product.name}, foto ${normalizedIndex + 1} de ${images.length}` : product.name)}
-          onError={markImageAsFailed}
+          alt={activeImage.altText || `${product.name}, foto ${normalizedIndex + 1}`}
           loading="lazy"
           decoding="async"
-          width="720"
-          height="720"
-          className="product-gallery-image h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+          onError={markImageAsFailed}
+          className="product-image h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
+      ) : (
+        <div className="product-image-fallback" role="img" aria-label={`Imagem indisponível para ${product.name}`}>
+          <span>{product.name?.charAt(0) || 'K'}</span>
+        </div>
       )}
       {hasGallery && (
         <>
-          <button type="button" onClick={() => selectImage((normalizedIndex - 1 + images.length) % images.length)} className="product-gallery-arrow is-previous" aria-label={`Mostrar foto anterior de ${product.name}`}>←</button>
-          <button type="button" onClick={() => selectImage((normalizedIndex + 1) % images.length)} className="product-gallery-arrow is-next" aria-label={`Mostrar próxima foto de ${product.name}`}>→</button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); selectImage((normalizedIndex - 1 + images.length) % images.length); }} className="product-gallery-arrow is-previous" aria-label={`Mostrar foto anterior de ${product.name}`}>←</button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); selectImage((normalizedIndex + 1) % images.length); }} className="product-gallery-arrow is-next" aria-label={`Mostrar próxima foto de ${product.name}`}>→</button>
           <span className="product-gallery-counter" aria-hidden="true">{normalizedIndex + 1}/{images.length}</span>
         </>
       )}
@@ -187,31 +213,8 @@ function getCardVariant(index, total) {
   return 'standard';
 }
 
-const AVAILABLE_SIZES = ['37', '38', '39', '40', '41', '42', '43', '44'];
-
-function getDefaultColors(product) {
-  const stock = product.stockQuantity || 0;
-  if (stock <= 0) return [{ name: 'Padrão', stock: 0, hex: '#222' }];
-
-  const stock1 = Math.max(1, Math.ceil(stock * 0.5));
-  const stock2 = Math.max(0, Math.floor(stock * 0.3));
-  const stock3 = Math.max(0, stock - stock1 - stock2);
-
-  return [
-    { name: 'Original Edition', stock: stock1, hex: '#1e1e24' },
-    ...(stock2 > 0 ? [{ name: 'Preto & Branco', stock: stock2, hex: '#000000' }] : []),
-    ...(stock3 > 0 ? [{ name: 'Edição Especial', stock: stock3, hex: '#e64a19' }] : []),
-  ];
-}
-
-function ProductCard({ product, index, totalProducts, onAddToCart, theme }) {
-  const [selectedSize, setSelectedSize] = useState('40');
-  const colors = useMemo(() => getDefaultColors(product), [product]);
-  const [selectedColor, setSelectedColor] = useState(() => colors[0]?.name || 'Padrão');
-
-  const activeColorObj = colors.find((c) => c.name === selectedColor) || colors[0];
-  const colorStock = activeColorObj?.stock ?? product.stockQuantity;
-  const isAvailable = colorStock > 0;
+function ProductCard({ product, index, totalProducts, onOpenDetail, theme }) {
+  const isAvailable = product.stockQuantity > 0;
 
   return (
     <motion.article
@@ -219,74 +222,34 @@ function ProductCard({ product, index, totalProducts, onAddToCart, theme }) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.1 }}
       transition={{ duration: 0.46, delay: Math.min(index * 0.06, 0.3), ease: [0.22, 1, 0.36, 1] }}
-      className={`product-card product-card-${getCardVariant(index, totalProducts)} group flex flex-col justify-between overflow-hidden rounded-[1.35rem] transition-all duration-300`}
+      className={`product-card product-card-${getCardVariant(index, totalProducts)} group flex flex-col justify-between overflow-hidden rounded-[1.35rem] transition-all duration-300 cursor-pointer`}
+      onClick={onOpenDetail}
     >
       <ProductMediaGallery product={product} productIndex={index} theme={theme} />
 
       <div className="product-content flex flex-grow flex-col justify-between p-5">
         <div>
           <span className="product-category">{getCategoryLabel(product.category, theme.category)}</span>
-          <h3 className="product-title mb-1 text-lg font-semibold transition-colors">{product.name}</h3>
-          <p className="mb-3 line-clamp-2 text-xs text-[var(--muted)]">{product.description || 'Uma escolha especial para a sua coleção.'}</p>
-
-          {/* Color Selector with individual stock */}
-          <div className="product-variant-section mt-3 mb-3">
-            <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="font-semibold text-[var(--muted)]">Cor: <b className="text-[var(--text)]">{selectedColor}</b></span>
-              <span className={`text-[11px] font-medium ${colorStock > 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                {colorStock > 0 ? `${colorStock} un. nesta cor` : 'Esgotado'}
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {colors.map((color) => (
-                <button
-                  key={color.name}
-                  type="button"
-                  onClick={() => setSelectedColor(color.name)}
-                  className={`color-pill flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${selectedColor === color.name ? 'border-[var(--accent)] bg-[var(--surface-solid)] text-[var(--text)] ring-1 ring-[var(--accent)]' : 'border-[var(--line)] text-[var(--muted)] hover:border-[var(--accent)]'}`}
-                  title={`${color.name} (${color.stock} em estoque)`}
-                >
-                  <span className="w-2.5 h-2.5 rounded-full inline-block border border-white/20" style={{ backgroundColor: color.hex }} />
-                  <span>{color.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Size Selector */}
-          <div className="product-size-section mb-4">
-            <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="font-semibold text-[var(--muted)]">Tamanho: <b className="text-[var(--text)]">{selectedSize}</b></span>
-              <span className="text-[11px] text-[var(--muted)]">Padrão BR</span>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {AVAILABLE_SIZES.map((size) => (
-                <button
-                  key={size}
-                  type="button"
-                  onClick={() => setSelectedSize(size)}
-                  className={`size-pill min-w-[2.1rem] py-1 px-1.5 text-center text-xs font-semibold rounded-lg border transition-all ${selectedSize === size ? 'bg-[var(--accent)] text-[var(--accent-ink)] border-[var(--accent)] shadow-sm font-bold' : 'border-[var(--line)] bg-[var(--surface)] text-[var(--text)] hover:border-[var(--accent)]'}`}
-                  aria-pressed={selectedSize === size}
-                >
-                  {size}
-                </button>
-              ))}
-            </div>
-          </div>
+          <h3 className="product-title mb-1 text-lg font-semibold transition-colors group-hover:text-[var(--accent)]">{product.name}</h3>
+          <p className="mb-4 line-clamp-2 text-xs text-[var(--muted)]">{product.description || 'Clique para ver tamanhos, cores e fotos detalhadas.'}</p>
         </div>
 
-        <div className="product-footer mt-auto flex items-center justify-between pt-3 border-t border-[var(--line)]">
+        <div className="product-footer mt-auto flex items-center justify-between pt-4 border-t border-[var(--line)]">
           <div>
             <span className="block text-xs text-[var(--muted)]">Preço à vista</span>
             <span className="product-price text-xl font-bold">R$ {Number(product.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+            <span className={`product-stock mt-1 flex items-center gap-1.5 text-xs ${isAvailable ? 'text-emerald-500' : 'text-rose-500'}`}><i />{isAvailable ? `${product.stockQuantity} em estoque` : 'Esgotado'}</span>
           </div>
           <motion.button
             type="button"
             whileTap={{ scale: 0.96 }}
-            onClick={() => onAddToCart({ ...product, selectedSize, selectedColor })}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenDetail();
+            }}
             disabled={!isAvailable}
             className="buy-button cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45"
-            aria-label={isAvailable ? `Adicionar ${product.name} (Tam ${selectedSize}, Cor ${selectedColor}) à sacola` : `${product.name} esgotado`}
+            aria-label={isAvailable ? `Ver detalhes de ${product.name}` : `${product.name} esgotado`}
           >
             <span>{isAvailable ? 'Comprar' : 'Esgotado'}</span><b aria-hidden="true">+</b>
           </motion.button>

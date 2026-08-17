@@ -343,6 +343,7 @@ export default function App() {
           : item
       ));
     });
+    setIsCartOpen(true);
   };
 
   const handleRemoveFromCart = (cartKeyOrId) => {
