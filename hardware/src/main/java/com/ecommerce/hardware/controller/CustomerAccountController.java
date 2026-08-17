@@ -40,7 +40,7 @@ public class CustomerAccountController {
     public ProfileView updateProfile(@Valid @RequestBody ProfileRequest request, HttpSession session,
                                      HttpServletResponse response) {
         noStore(response);
-        return accounts.updateProfile(customerId(session), request.fullName(), request.email(), request.cpf());
+        return accounts.updateProfile(customerId(session), request.sanitizedFullName(), request.sanitizedEmail(), request.sanitizedCpf());
     }
 
     @PostMapping("/addresses")
@@ -82,7 +82,17 @@ public class CustomerAccountController {
 
     public record ProfileRequest(@Size(max = 160) String fullName,
                                  @Size(max = 254) String email,
-                                 @Size(max = 20) String cpf) { }
+                                 @Size(max = 20) String cpf) {
+        public String sanitizedFullName() {
+            return com.ecommerce.hardware.security.InputSanitizer.sanitizeText(fullName);
+        }
+        public String sanitizedEmail() {
+            return com.ecommerce.hardware.security.InputSanitizer.sanitizeEmail(email);
+        }
+        public String sanitizedCpf() {
+            return com.ecommerce.hardware.security.InputSanitizer.sanitizeText(cpf);
+        }
+    }
 
     public record AddressRequest(@Size(max = 60) String label,
                                  @Size(max = 10) String postalCode,
@@ -94,8 +104,17 @@ public class CustomerAccountController {
                                  @Size(max = 120) String complement,
                                  Boolean isDefault) {
         private AddressInput toInput() {
-            return new AddressInput(label, postalCode, state, city, neighborhood, street, addressNumber,
-                    complement, Boolean.TRUE.equals(isDefault));
+            return new AddressInput(
+                    com.ecommerce.hardware.security.InputSanitizer.sanitizeText(label),
+                    com.ecommerce.hardware.security.InputSanitizer.sanitizeText(postalCode),
+                    com.ecommerce.hardware.security.InputSanitizer.sanitizeText(state),
+                    com.ecommerce.hardware.security.InputSanitizer.sanitizeText(city),
+                    com.ecommerce.hardware.security.InputSanitizer.sanitizeText(neighborhood),
+                    com.ecommerce.hardware.security.InputSanitizer.sanitizeText(street),
+                    com.ecommerce.hardware.security.InputSanitizer.sanitizeText(addressNumber),
+                    com.ecommerce.hardware.security.InputSanitizer.sanitizeText(complement),
+                    Boolean.TRUE.equals(isDefault)
+            );
         }
     }
 }

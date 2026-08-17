@@ -79,11 +79,29 @@ public class SupportMessageController {
 
     @PostMapping("/support/messages")
     public ResponseEntity<SupportMessageResponse> sendMessage(@Valid @RequestBody CreateMessageRequest request) {
+        String cleanFullName = com.ecommerce.hardware.security.InputSanitizer.sanitizeText(request.fullName());
+        String cleanEmail = com.ecommerce.hardware.security.InputSanitizer.sanitizeEmail(request.email());
+        String cleanSubject = com.ecommerce.hardware.security.InputSanitizer.sanitizeText(request.subject());
+        String cleanMessage = com.ecommerce.hardware.security.InputSanitizer.sanitizeText(request.message());
+
+        if (cleanFullName == null || cleanFullName.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O nome informado é inválido.");
+        }
+        if (cleanEmail == null || cleanEmail.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O e-mail informado é inválido.");
+        }
+        if (cleanSubject == null || cleanSubject.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "O assunto informado é inválido.");
+        }
+        if (cleanMessage == null || cleanMessage.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A mensagem informada é inválida.");
+        }
+
         SupportMessage message = new SupportMessage(
-                request.fullName().trim(),
-                request.email().trim().toLowerCase(),
-                request.subject().trim(),
-                request.message().trim()
+                cleanFullName,
+                cleanEmail,
+                cleanSubject,
+                cleanMessage
         );
         SupportMessage saved = supportMessages.save(message);
         return ResponseEntity.status(HttpStatus.CREATED).body(SupportMessageResponse.from(saved));

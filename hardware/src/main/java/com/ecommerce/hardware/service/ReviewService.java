@@ -9,6 +9,7 @@ import com.ecommerce.hardware.repository.ProductRepository;
 import com.ecommerce.hardware.repository.ProductReviewRepository;
 import com.ecommerce.hardware.repository.PurchaseOrderRepository;
 import com.ecommerce.hardware.repository.StoreReviewRepository;
+import com.ecommerce.hardware.security.InputSanitizer;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.data.domain.PageRequest;
@@ -82,8 +83,8 @@ public class ReviewService {
         if (rating < 1 || rating > 5) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A avaliação deve ser entre 1 e 5 estrelas.");
         }
-        String cleanComment = comment == null ? "" : comment.trim();
-        if (cleanComment.isBlank()) {
+        String cleanComment = InputSanitizer.sanitizeText(comment);
+        if (cleanComment == null || cleanComment.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Escreva um comentário para sua avaliação.");
         }
         if (cleanComment.length() > 4000) {
@@ -98,9 +99,10 @@ public class ReviewService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, eligibility.reason());
         }
 
-        String authorName = customer.getFullName() != null && !customer.getFullName().isBlank()
+        String rawAuthor = customer.getFullName() != null && !customer.getFullName().isBlank()
                 ? customer.getFullName()
                 : (customer.getEmail() != null ? customer.getEmail().split("@")[0] : "Cliente Verificado");
+        String authorName = InputSanitizer.sanitizeText(rawAuthor);
 
         StoreReview review = new StoreReview(customer, authorName, rating, cleanComment);
         StoreReview saved = storeReviews.save(review);
@@ -137,8 +139,8 @@ public class ReviewService {
         if (rating < 1 || rating > 5) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A avaliação deve ser entre 1 e 5 estrelas.");
         }
-        String cleanComment = comment == null ? "" : comment.trim();
-        if (cleanComment.isBlank()) {
+        String cleanComment = InputSanitizer.sanitizeText(comment);
+        if (cleanComment == null || cleanComment.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Escreva um comentário para sua avaliação.");
         }
         if (cleanComment.length() > 4000) {
@@ -156,9 +158,10 @@ public class ReviewService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, eligibility.reason());
         }
 
-        String authorName = customer.getFullName() != null && !customer.getFullName().isBlank()
+        String rawAuthor = customer.getFullName() != null && !customer.getFullName().isBlank()
                 ? customer.getFullName()
                 : (customer.getEmail() != null ? customer.getEmail().split("@")[0] : "Cliente Verificado");
+        String authorName = InputSanitizer.sanitizeText(rawAuthor);
 
         ProductReview review = new ProductReview(customer, product, authorName, rating, cleanComment);
         ProductReview saved = productReviews.save(review);
