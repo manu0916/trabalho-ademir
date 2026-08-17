@@ -17,6 +17,8 @@ export default function ProductGrid({
   onClearSearch,
   customerSession,
   onOpenLogin,
+  wishlistIds = [],
+  onToggleWishlist,
 }) {
   const [activeCategoryId, setActiveCategoryId] = useState(ALL_CATEGORIES_ID);
   const [selectedProductForDetail, setSelectedProductForDetail] = useState(null);
@@ -103,6 +105,8 @@ export default function ProductGrid({
             totalProducts={visibleProducts.length}
             onOpenDetail={() => setSelectedProductForDetail(product)}
             theme={theme}
+            isWishlisted={wishlistIds.includes(product.id)}
+            onToggleWishlist={onToggleWishlist}
           />
         ))}
       </div>
@@ -115,6 +119,8 @@ export default function ProductGrid({
         theme={theme}
         customerSession={customerSession}
         onOpenLogin={onOpenLogin}
+        isWishlisted={selectedProductForDetail ? wishlistIds.includes(selectedProductForDetail.id) : false}
+        onToggleWishlist={onToggleWishlist}
       />
 
       {visibleProducts.length === 0 && (
@@ -223,7 +229,7 @@ function getCardVariant(index, total) {
   return 'standard';
 }
 
-function ProductCard({ product, index, totalProducts, onOpenDetail, theme }) {
+function ProductCard({ product, index, totalProducts, onOpenDetail, theme, isWishlisted, onToggleWishlist }) {
   const isAvailable = product.stockQuantity > 0;
 
   return (
@@ -232,9 +238,24 @@ function ProductCard({ product, index, totalProducts, onOpenDetail, theme }) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.1 }}
       transition={{ duration: 0.46, delay: Math.min(index * 0.06, 0.3), ease: [0.22, 1, 0.36, 1] }}
-      className={`product-card product-card-${getCardVariant(index, totalProducts)} group flex flex-col justify-between overflow-hidden rounded-[1.35rem] transition-all duration-300 cursor-pointer`}
+      className={`product-card product-card-${getCardVariant(index, totalProducts)} group relative flex flex-col justify-between overflow-hidden rounded-[1.35rem] transition-all duration-300 cursor-pointer`}
       onClick={onOpenDetail}
     >
+      {/* Wishlist floating heart */}
+      {onToggleWishlist && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleWishlist(product.id);
+          }}
+          className={`absolute top-3 left-3 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-sm transition-transform hover:scale-110 ${isWishlisted ? 'text-rose-500' : 'text-white/80 hover:text-rose-500'}`}
+          aria-label={isWishlisted ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+        >
+          {isWishlisted ? '❤️' : '🤍'}
+        </button>
+      )}
+
       <ProductMediaGallery product={product} productIndex={index} theme={theme} />
 
       <div className="product-content flex flex-grow flex-col justify-between p-5">

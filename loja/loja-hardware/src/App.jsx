@@ -13,6 +13,8 @@ import StoreReviewsSection from './components/StoreReviewsSection';
 import FaqSection from './components/FaqSection';
 import BrandFooter from './components/BrandFooter';
 import PaymentStatusPage from './components/PaymentStatusPage';
+import AnnouncementBar from './components/AnnouncementBar';
+import WishlistDrawer from './components/WishlistDrawer';
 import { STORE_THEME } from './themes';
 import {
   fetchProducts,
@@ -88,6 +90,30 @@ export default function App() {
   const [heroSettingsError, setHeroSettingsError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [dashboard, setDashboard] = useState(null);
+
+  // Wishlist & Coupon State
+  const [wishlistIds, setWishlistIds] = useState(() => {
+    try {
+      const stored = localStorage.getItem('kicks_store_wishlist');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isWishlistOpen, setIsWishlistOpen] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+
+  const handleToggleWishlist = (productId) => {
+    setWishlistIds((prev) => {
+      const next = prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId];
+      try {
+        localStorage.setItem('kicks_store_wishlist', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
 
   useEffect(() => { storeCart(cart); }, [cart]);
   useEffect(() => {
@@ -509,6 +535,7 @@ export default function App() {
     <MotionConfig reducedMotion="user">
     <div className="app-shell min-h-screen" data-theme={theme.id}>
       <a href="#main-content" className="skip-link">Pular para o conteúdo</a>
+      {currentView === 'shop' && <AnnouncementBar />}
       <Navbar
         storeName={storeName}
         cartCount={cart.reduce((total, item) => total + item.quantity, 0)}
@@ -521,6 +548,8 @@ export default function App() {
         onCustomerAccess={handleOpenCustomerAccess}
         onCustomerAccount={handleOpenCustomerAccount}
         onCustomerLogout={handleCustomerLogout}
+        wishlistCount={wishlistIds.length}
+        onOpenWishlist={() => setIsWishlistOpen(true)}
       />
 
       <main id="main-content" className={currentView === 'shop' ? 'shop-main' : 'admin-main py-6'}>
@@ -554,6 +583,8 @@ export default function App() {
                 onClearSearch={() => setSearchQuery('')}
                 customerSession={customerSession}
                 onOpenLogin={() => setIsCustomerAccessOpen(true)}
+                wishlistIds={wishlistIds}
+                onToggleWishlist={handleToggleWishlist}
               />
             )}
             <StoreReviewsSection
@@ -593,6 +624,21 @@ export default function App() {
         cartItems={cart}
         onRemoveItem={handleRemoveFromCart}
         onCheckout={handleCheckout}
+        appliedCoupon={appliedCoupon}
+        onApplyCoupon={setAppliedCoupon}
+        onRemoveCoupon={() => setAppliedCoupon(null)}
+      />
+
+      <WishlistDrawer
+        isOpen={isWishlistOpen}
+        onClose={() => setIsWishlistOpen(false)}
+        wishlistIds={wishlistIds}
+        products={products}
+        onToggleWishlist={handleToggleWishlist}
+        onOpenProductDetail={() => {
+          setIsWishlistOpen(false);
+          document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' });
+        }}
       />
 
       {isCustomerAccessOpen && (
@@ -625,6 +671,7 @@ export default function App() {
           onManageAccount={handleManageAccountFromCheckout}
           initialDraft={checkoutDraft}
           onDraftChange={setCheckoutDraft}
+          appliedCoupon={appliedCoupon}
         />
       )}
     </div>

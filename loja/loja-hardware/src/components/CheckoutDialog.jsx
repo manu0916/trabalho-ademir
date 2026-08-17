@@ -46,6 +46,7 @@ export default function CheckoutDialog({
   onManageAccount,
   initialDraft = null,
   onDraftChange,
+  appliedCoupon,
 }) {
   const initialDraftRef = useRef(initialDraft);
   const [account, setAccount] = useState(null);
@@ -62,6 +63,8 @@ export default function CheckoutDialog({
   // State shown after a successful order creation when the redirect was blocked
   const [whatsappFallback, setWhatsappFallback] = useState(null);
   const total = useMemo(() => cartItems.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0), [cartItems]);
+  const discountAmount = appliedCoupon?.discountAmount ? Number(appliedCoupon.discountAmount) : 0;
+  const finalTotal = Math.max(0, total - discountAmount);
   const fullNameRef = useRef(null);
   const closeButtonRef = useRef(null);
   const dialogRef = useRef(null);
@@ -323,7 +326,22 @@ export default function CheckoutDialog({
           <aside className="checkout-summary">
             <div><p className="checkout-legend">Sua seleção</p><p className="mt-2 text-sm text-[var(--muted)]">{cartItems.reduce((sum, item) => sum + item.quantity, 0)} itens preparados para você.</p></div>
             <div className="checkout-items">{cartItems.map((item) => <div className="checkout-item" key={item.id}><img src={item.imageUrl} alt="" loading="lazy" decoding="async" /><div><strong>{item.name}</strong><small>{item.quantity}× · R$ {Number(item.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</small></div></div>)}</div>
-            <div className="checkout-total flex items-center justify-between rounded-2xl p-4 text-sm"><span className="text-[var(--muted)]">Total do pedido</span><strong className="text-lg text-[var(--text)]">R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></div>
+            <div className="checkout-total space-y-1.5 rounded-2xl p-4 text-sm bg-[var(--surface-solid)] border border-[var(--line)]">
+              <div className="flex items-center justify-between text-xs text-[var(--muted)]">
+                <span>Subtotal</span>
+                <span>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+              {appliedCoupon && (
+                <div className="flex items-center justify-between text-xs text-emerald-500 font-semibold">
+                  <span>Desconto ({appliedCoupon.code})</span>
+                  <span>- R$ {discountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between pt-1.5 border-t border-[var(--line)]">
+                <span className="font-bold text-[var(--text)]">Total Final</span>
+                <strong className="text-lg text-[var(--accent)]">R$ {finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+              </div>
+            </div>
             {whatsappFallback && (
               <div role="alert" className="checkout-whatsapp-fallback rounded-2xl p-4 text-sm" style={{background:'var(--surface-elevated)',border:'1px solid var(--border)'}}>
                 <p className="font-semibold text-[var(--text)]">Pedido #{whatsappFallback.orderId} criado com sucesso!</p>

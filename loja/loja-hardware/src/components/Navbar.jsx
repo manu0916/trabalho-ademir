@@ -10,6 +10,8 @@ export default function Navbar({
   onCustomerAccess,
   onCustomerAccount,
   onCustomerLogout,
+  wishlistCount = 0,
+  onOpenWishlist,
 }) {
   return (
     <header className="navbar sticky top-0 z-40">
@@ -46,6 +48,23 @@ export default function Navbar({
             <button type="button" onClick={() => onViewChange(currentView === 'shop' ? 'admin' : 'shop')} className="nav-button cursor-pointer rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors">
               <span className="nav-button-dot" aria-hidden="true" />{currentView === 'shop' ? 'Painel' : 'Loja'}
             </button>
+            {currentView === 'shop' && (
+              <button
+                type="button"
+                onClick={onOpenWishlist}
+                className="nav-cart relative flex cursor-pointer items-center gap-1.5 rounded-xl p-2.5 transition-colors"
+                aria-label={`Abrir favoritos com ${wishlistCount || 0} itens`}
+                title="Lista de Desejos"
+              >
+                <span className="text-base" aria-hidden="true">❤️</span>
+                <span className="hidden text-xs font-semibold sm:inline">Favoritos</span>
+                {(wishlistCount || 0) > 0 && (
+                  <span className="cart-count absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-extrabold bg-rose-500 text-white shadow-md">
+                    {wishlistCount}
+                  </span>
+                )}
+              </button>
+            )}
             {currentView === 'shop' && <button type="button" onClick={onOpenCart} className="nav-cart relative flex cursor-pointer items-center gap-2 rounded-xl p-2.5 transition-colors" aria-label={`Abrir carrinho com ${cartCount} itens`}>
               <svg className="nav-accent h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 0 0-8 0v4M5 9h14l1 12H4L5 9Z" /></svg>
               <span className="hidden text-xs font-semibold sm:inline">Sacola</span>

@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getProductImages } from '../utils/productImages';
 import { getCategoryLabel } from '../utils/catalogCategories';
 import StarRating from './StarRating';
+import SizeGuideModal from './SizeGuideModal';
+import StockAlertModal from './StockAlertModal';
+import ShippingCalculator from './ShippingCalculator';
 import {
   fetchProductReviews,
   fetchProductReviewEligibility,
@@ -34,6 +37,8 @@ export default function ProductDetailModal({
   theme,
   customerSession,
   onOpenLogin,
+  isWishlisted = false,
+  onToggleWishlist,
 }) {
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
@@ -44,6 +49,10 @@ export default function ProductDetailModal({
 
   const allImages = useMemo(() => (product ? getProductImages(product) : []), [product]);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+
+  // Modals state
+  const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false);
+  const [isStockAlertOpen, setIsStockAlertOpen] = useState(false);
 
   // Reviews state
   const [activeTab, setActiveTab] = useState('specs'); // 'specs' | 'reviews'
@@ -79,6 +88,8 @@ export default function ProductDetailModal({
       setReviewError('');
       setNewComment('');
       setNewRating(5);
+      setIsSizeGuideOpen(false);
+      setIsStockAlertOpen(false);
       loadReviews();
     }
   }, [loadReviews, product]);
@@ -186,16 +197,28 @@ export default function ProductDetailModal({
           aria-labelledby="product-detail-title"
           className="product-detail-card relative z-10 w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-[1.85rem] bg-[var(--surface-solid)] p-6 shadow-2xl border border-[var(--line)] sm:p-8"
         >
-          {/* Close Button */}
-          <button
-            ref={closeButtonRef}
-            type="button"
-            onClick={onClose}
-            className="absolute right-5 top-5 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--bg)]/80 text-xl font-bold text-[var(--text)] backdrop-blur-md transition-transform hover:scale-110 border border-[var(--line)]"
-            aria-label="Fechar detalhes do produto"
-          >
-            ×
-          </button>
+          {/* Action Header: Wishlist & Close */}
+          <div className="absolute right-5 top-5 z-20 flex items-center gap-2">
+            {onToggleWishlist && (
+              <button
+                type="button"
+                onClick={() => onToggleWishlist(product.id)}
+                className={`flex h-10 w-10 items-center justify-center rounded-full bg-[var(--bg)]/80 text-base backdrop-blur-md transition-transform hover:scale-110 border border-[var(--line)] ${isWishlisted ? 'text-rose-500' : 'text-[var(--muted)] hover:text-rose-500'}`}
+                aria-label={isWishlisted ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+              >
+                {isWishlisted ? '❤️' : '🤍'}
+              </button>
+            )}
+            <button
+              ref={closeButtonRef}
+              type="button"
+              onClick={onClose}
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--bg)]/80 text-xl font-bold text-[var(--text)] backdrop-blur-md transition-transform hover:scale-110 border border-[var(--line)]"
+              aria-label="Fechar detalhes do produto"
+            >
+              ×
+            </button>
+          </div>
 
           <div className="grid gap-8 md:grid-cols-12 md:items-start">
             {/* Gallery Column (Left) */}
@@ -209,6 +232,10 @@ export default function ProductDetailModal({
                 <span className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white backdrop-blur-md">
                   {getCategoryLabel(product.category, theme?.category || 'Kicks')}
                 </span>
+
+                <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1 text-[11px] font-bold text-emerald-400 backdrop-blur-md border border-emerald-500/30">
+                  <span>🛡️</span> Legit Check 100% Autêntico
+                </div>
               </div>
 
               {/* Thumbnails */}
@@ -232,7 +259,7 @@ export default function ProductDetailModal({
             {/* Product Details & Purchase Controls (Right) */}
             <div className="md:col-span-6 flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2 pr-16">
                   <p className="section-kicker">{theme?.edition || 'Sneakers & Streetwear'}</p>
                   <button
                     type="button"
@@ -265,7 +292,7 @@ export default function ProductDetailModal({
                     onClick={() => setActiveTab('specs')}
                     className={`pb-1 transition-colors ${activeTab === 'specs' ? 'text-[var(--accent)] border-b-2 border-[var(--accent)]' : 'text-[var(--muted)] hover:text-[var(--text)]'}`}
                   >
-                    Comprar & Detalhes
+                    Comprar &amp; Detalhes
                   </button>
                   <button
                     type="button"
@@ -280,15 +307,15 @@ export default function ProductDetailModal({
                 </div>
 
                 {activeTab === 'specs' ? (
-                  <div className="mt-4">
+                  <div className="mt-4 space-y-4">
                     <p className="text-sm leading-6 text-[var(--muted)]">
                       {product.description || 'Modelo de alta performance com design exclusivo, amortecimento de ponta e materiais premium para máxima tração e estilo.'}
                     </p>
 
-                    <hr className="my-5 border-[var(--line)]" />
+                    <hr className="my-4 border-[var(--line)]" />
 
                     {/* Color Variations with Stock */}
-                    <div className="mb-4">
+                    <div>
                       <div className="flex items-center justify-between text-sm mb-2">
                         <span className="font-semibold text-[var(--text)]">
                           Cor: <span className="text-[var(--accent)]">{selectedColor}</span>
@@ -315,13 +342,19 @@ export default function ProductDetailModal({
                       </div>
                     </div>
 
-                    {/* Size (Numeração) Selector */}
-                    <div className="mb-5">
+                    {/* Size (Numeração) Selector with Size Guide Button */}
+                    <div>
                       <div className="flex items-center justify-between text-sm mb-2">
                         <span className="font-semibold text-[var(--text)]">
                           Tamanho (BR): <span className="text-[var(--accent)] font-bold">{selectedSize}</span>
                         </span>
-                        <span className="text-xs text-[var(--muted)]">Padrão Brasileiro</span>
+                        <button
+                          type="button"
+                          onClick={() => setIsSizeGuideOpen(true)}
+                          className="text-xs text-[var(--accent)] font-bold hover:underline flex items-center gap-1"
+                        >
+                          📏 Guia de Medidas (cm)
+                        </button>
                       </div>
                       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
                         {AVAILABLE_SIZES.map((size) => {
@@ -341,8 +374,8 @@ export default function ProductDetailModal({
                       </div>
                     </div>
 
-                    {/* Add to Cart CTA */}
-                    <div className="pt-2">
+                    {/* Add to Cart CTA & Back-in-stock alert */}
+                    <div className="pt-2 space-y-2">
                       <button
                         type="button"
                         onClick={handleAdd}
@@ -351,9 +384,25 @@ export default function ProductDetailModal({
                       >
                         {isAvailable ? `Adicionar à Sacola (Tam ${selectedSize} • ${selectedColor})` : 'Esgotado nesta variação'}
                       </button>
-                      <p className="mt-2 text-center text-xs text-[var(--muted)]">
+
+                      {!isAvailable && (
+                        <button
+                          type="button"
+                          onClick={() => setIsStockAlertOpen(true)}
+                          className="w-full py-2.5 rounded-xl text-xs font-bold bg-amber-500/10 text-amber-500 border border-amber-500/30 hover:bg-amber-500/20 transition-colors"
+                        >
+                          🔔 Avise-me quando este tamanho/cor chegar
+                        </button>
+                      )}
+
+                      <p className="text-center text-xs text-[var(--muted)]">
                         ⚡ Envio rápido para todo o Brasil • Pagamento 100% seguro
                       </p>
+                    </div>
+
+                    {/* Shipping Calculator */}
+                    <div className="pt-2">
+                      <ShippingCalculator orderAmount={product.price} />
                     </div>
                   </div>
                 ) : (
@@ -505,6 +554,22 @@ export default function ProductDetailModal({
               </div>
             </div>
           </div>
+
+          {/* Sub-modals */}
+          <SizeGuideModal
+            isOpen={isSizeGuideOpen}
+            onClose={() => setIsSizeGuideOpen(false)}
+            selectedSize={selectedSize}
+          />
+
+          <StockAlertModal
+            isOpen={isStockAlertOpen}
+            onClose={() => setIsStockAlertOpen(false)}
+            product={product}
+            selectedSize={selectedSize}
+            selectedColor={selectedColor}
+            customerSession={customerSession}
+          />
         </motion.section>
       </div>
     </AnimatePresence>

@@ -555,4 +555,70 @@ export async function updateSupportMessageStatus(messageId, status) {
   return parseResponse(response);
 }
 
+export async function validateCoupon(code, amount) {
+  const params = new URLSearchParams({
+    code: String(code || '').trim(),
+    amount: String(amount || 0),
+  });
+  const response = await request(`/coupons/validate?${params.toString()}`);
+  return parseResponse(response);
+}
+
+export async function fetchAdminCoupons() {
+  const response = await adminRequest('/admin/coupons');
+  return parseResponse(response);
+}
+
+export async function createAdminCoupon(couponData) {
+  const response = await adminRequest('/admin/coupons', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(couponData),
+  });
+  return parseResponse(response);
+}
+
+export async function toggleAdminCoupon(couponId) {
+  const response = await adminRequest(`/admin/coupons/${normalizedOrderId(couponId)}/toggle`, {
+    method: 'PATCH',
+  });
+  return parseResponse(response);
+}
+
+export async function deleteAdminCoupon(couponId) {
+  const response = await adminRequest(`/admin/coupons/${normalizedOrderId(couponId)}`, {
+    method: 'DELETE',
+  });
+  return parseResponse(response);
+}
+
+export async function createStockAlert({ productId, productName, size, color, email, whatsapp }) {
+  const response = await request('/stock-alerts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      productId: Number(productId),
+      productName: String(productName || '').trim(),
+      size: String(size || '').trim(),
+      color: String(color || '').trim(),
+      email: String(email || '').trim().toLowerCase(),
+      whatsapp: whatsapp ? String(whatsapp).trim() : null,
+    }),
+  });
+  return parseResponse(response);
+}
+
+export async function fetchAdminStockAlerts() {
+  const response = await adminRequest('/admin/stock-alerts');
+  return parseResponse(response);
+}
+
+export async function markStockAlertNotified(alertId) {
+  const response = await adminRequest(`/admin/stock-alerts/${normalizedOrderId(alertId)}/notify`, {
+    method: 'PATCH',
+  });
+  return parseResponse(response);
+}
+
+
 
