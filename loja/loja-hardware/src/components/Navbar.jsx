@@ -16,7 +16,7 @@ export default function Navbar({
       <div className="nav-shell mx-auto max-w-[90rem] px-4 sm:px-8">
         <div className="flex h-[4.75rem] items-center justify-between gap-3">
           <button type="button" onClick={() => onViewChange('shop')} className="nav-brand flex items-center gap-3" aria-label="Voltar para a loja">
-            <img src="/kicks-store-logo.jpg" alt={storeName || 'Kicks Store'} className="h-10 w-10 rounded-xl object-contain shadow-md border border-[var(--line)] bg-[var(--surface-solid)]" />
+            <img src="/favicon.png" alt={storeName || 'Kicks Store'} className="h-10 w-10 rounded-xl object-contain shadow-md" />
             <span className="brand-copy hidden sm:block">
               <span className="brand-name block text-[.95rem] font-extrabold tracking-[.04em] uppercase">{storeName}</span>
               <small>sneakers &amp; streetwear</small>
