@@ -12,11 +12,35 @@ O comando inicia o back-end em `http://localhost:8080` e o front-end em `http://
 
 ## Pagamento e estoque
 
-O checkout usa o Stripe Checkout hospedado. Dados de cartão e dos demais meios habilitados são preenchidos na página HTTPS do Stripe; a aplicação não recebe esses dados. Preços, itens e totais são recalculados no back-end, e somente o webhook assinado confirma a mudança de estado do pedido. A visita às páginas de sucesso ou cancelamento nunca confirma nem cancela um pagamento.
+A loja utiliza o fluxo de checkout via **WhatsApp**:
+1. O cliente preenche seus dados de entrega e clica em **"Finalizar pelo WhatsApp"**.
+2. O back-end cria o pedido com status `PENDING_PAYMENT`, calcula o total e reserva o estoque imediatamente.
+3. O back-end gera e valida uma URL segura do WhatsApp (`https://wa.me/...`) contendo apenas o número do pedido e o valor total em reais (sem nenhum dado pessoal ou PII).
+4. O cliente é redirecionado para o WhatsApp da loja para combinar o pagamento diretamente.
+5. No **Painel Administrativo**, o lojista pode:
+   - **Confirmar pagamento recebido**: consolida a baixa no estoque e marca o pedido como `PAID`.
+   - **Cancelar e liberar estoque**: cancela o pedido e devolve as unidades reservadas para a vitrine.
+6. Pedidos via WhatsApp não confirmados após o tempo limite (`APP_STORE_WHATSAPP_EXPIRY_MINUTES`, padrão 60 minutos) são cancelados automaticamente pelo agendador do back-end, liberando o estoque.
 
-### Configuração
+### Configuração do WhatsApp
 
-Defina estas variáveis somente no ambiente do back-end:
+Defina estas variáveis no ambiente do back-end:
+
+```text
+APP_STORE_WHATSAPP_NUMBER=5535991526318
+APP_STORE_WHATSAPP_EXPIRY_MINUTES=60
+```
+
+- `APP_STORE_WHATSAPP_NUMBER` é obrigatório para aceitar compras. Formato: DDI + DDD + número, somente dígitos (sem `+`, espaços ou traços). O back-end rejeita checkouts se a variável estiver ausente ou inválida.
+- `APP_STORE_WHATSAPP_EXPIRY_MINUTES` é opcional e define a validade (em minutos) antes do cancelamento automático de pedidos pendentes.
+
+---
+
+### Stripe (Pedidos Legados e Compatibilidade)
+
+A integração Stripe é mantida no back-end para consulta de status, webhooks e reembolsos de pedidos legados criados anteriormente.
+
+Defina estas variáveis no ambiente do back-end se houver histórico Stripe a manter:
 
 ```text
 STRIPE_SECRET_KEY=sk_test_sua-chave-secreta

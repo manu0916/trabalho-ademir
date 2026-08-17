@@ -85,4 +85,15 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, Lo
             + "and purchaseOrder.paymentIntentId is not null order by purchaseOrder.paymentUpdatedAt")
     List<Long> findRefundReconciliationIds(@Param("provider") PaymentProvider provider,
                                            @Param("refundState") RefundState refundState, Pageable pageable);
+
+    /** Returns IDs of WHATSAPP orders that are still PENDING but have passed their expiry timestamp. */
+    @Query("select purchaseOrder.id from PurchaseOrder purchaseOrder "
+            + "where purchaseOrder.paymentProvider = :provider "
+            + "and purchaseOrder.paymentState = :state "
+            + "and purchaseOrder.whatsappExpiresAt is not null "
+            + "and purchaseOrder.whatsappExpiresAt < :now "
+            + "order by purchaseOrder.whatsappExpiresAt")
+    List<Long> findExpiredWhatsappOrderIds(@Param("provider") PaymentProvider provider,
+                                           @Param("state") PaymentState state,
+                                           @Param("now") Instant now, Pageable pageable);
 }

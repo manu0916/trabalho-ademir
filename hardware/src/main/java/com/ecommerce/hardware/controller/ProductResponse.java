@@ -1,14 +1,12 @@
 package com.ecommerce.hardware.controller;
 
-import com.ecommerce.hardware.model.Product;
-
 import java.math.BigDecimal;
+import java.util.List;
 
 public record ProductResponse(Long id, String name, String category, BigDecimal price,
-                              Integer stockQuantity, String description, String imageUrl) {
+                              Integer stockQuantity, String description, String imageUrl,
+                              List<ProductImageResponse> images) {
 
-    static ProductResponse from(Product product) {
-        return new ProductResponse(product.getId(), product.getName(), product.getCategory(), product.getPrice(),
-                product.getStockQuantity(), product.getDescription(), product.getImageUrl());
+    public record ProductImageResponse(Long id, String imageUrl, Integer sortOrder) {
     }
 }

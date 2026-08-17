@@ -86,12 +86,25 @@ public class PaymentService {
      */
     public CheckoutResult startCheckout(CustomerAccount customer, CheckoutCustomer checkoutCustomer,
                                         List<RequestedItem> requestedItems, String idempotencyKey) {
+        return startCheckout(customer, checkoutCustomer, requestedItems, idempotencyKey,
+                CheckoutPersistenceIntent.none(), () -> { });
+    }
+
+    public CheckoutResult startCheckout(CustomerAccount customer, CheckoutCustomer checkoutCustomer,
+                                        List<RequestedItem> requestedItems, String idempotencyKey,
+                                        CheckoutPersistenceIntent persistenceIntent,
+                                        Runnable persistAcceptedCheckout) {
         Map<Long, Integer> quantities = aggregate(requestedItems);
-        String requestHash = checkoutRequestHash(checkoutCustomer, quantities);
+        CheckoutPersistenceIntent intent = persistenceIntent == null
+                ? CheckoutPersistenceIntent.none() : persistenceIntent;
+        Runnable persistence = Objects.requireNonNull(persistAcceptedCheckout, "persistAcceptedCheckout");
+        String requestHash = checkoutRequestHash(checkoutCustomer, quantities, intent);
+        String legacyRequestHash = legacyCheckoutRequestHash(checkoutCustomer, quantities);
         ensureCheckoutAttempt(idempotencyKey, customer.getId(), requestHash);
 
         CheckoutPreparation preparation = required(transactions.execute(ignored -> prepareCheckout(
-                customer, checkoutCustomer, quantities, idempotencyKey, requestHash)));
+                customer, checkoutCustomer, quantities, idempotencyKey, requestHash, legacyRequestHash,
+                persistence)));
         if (preparation.replay() != null) return preparation.replay();
         if (preparation.inProgress()) {
             throw new CheckoutConflictException("CHECKOUT_ATTEMPT_IN_PROGRESS",
@@ -545,27 +558,46 @@ public class PaymentService {
     }
 
     private CheckoutPreparation prepareCheckout(CustomerAccount customer, CheckoutCustomer details,
-                                                Map<Long, Integer> quantities, String key, String requestHash) {
+                                                Map<Long, Integer> quantities, String key, String requestHash,
+                                                String legacyRequestHash,
+                                                Runnable persistAcceptedCheckout) {
         PaymentCheckoutAttempt attempt = checkoutAttempts.findByIdForUpdate(key)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                         "A tentativa de pagamento não pôde ser recuperada."));
-        if (!Objects.equals(customer.getId(), attempt.getCustomerId())
-                || !constantTimeEquals(requestHash, attempt.getRequestHash())) {
+        boolean sameCustomer = Objects.equals(customer.getId(), attempt.getCustomerId());
+        boolean currentIdentity = sameCustomer && constantTimeEquals(requestHash, attempt.getRequestHash());
+        // Compatibility for attempts created before persistence intent became part of the hash.
+        // It is intentionally replay-only: an attached order must already exist, and the account
+        // persistence callback is never executed through this branch.
+        boolean legacyReplay = !currentIdentity && sameCustomer && attempt.getOrderId() != null
+                && constantTimeEquals(legacyRequestHash, attempt.getRequestHash());
+        if (!currentIdentity && !legacyReplay) {
             throw new CheckoutConflictException("IDEMPOTENCY_PAYLOAD_MISMATCH",
                     "A chave de idempotência já foi usada com outro checkout.");
         }
+        String acceptedRequestHash = legacyReplay ? legacyRequestHash : requestHash;
 
         PurchaseOrder existing = attempt.getOrderId() == null ? null
                 : orders.findByIdForUpdate(attempt.getOrderId()).orElse(null);
+        if (legacyReplay && existing == null) {
+            throw new CheckoutConflictException("CHECKOUT_ATTEMPT_TERMINAL",
+                    "Esta tentativa de checkout já foi encerrada. Inicie uma nova tentativa.");
+        }
         if (existing == null) {
             existing = orders.findByExternalReferenceForUpdate(key).orElse(null);
             if (existing != null) attempt.attachOrder(existing.getId());
         }
-        if (existing != null) return existingCheckoutPreparation(existing, customer.getId(), requestHash, attempt);
+        if (existing != null) {
+            return existingCheckoutPreparation(existing, customer.getId(), acceptedRequestHash, attempt);
+        }
+
+        // Account persistence is deliberately after the idempotency comparison and replay lookup.
+        // It joins this transaction, so failures while preparing the order roll it back as well.
+        persistAcceptedCheckout.run();
 
         PurchaseOrder order = new PurchaseOrder(customer, details.fullName(), details.email(), details.cpf(),
                 details.paymentMethod(), details.postalCode(), details.state(), details.city(), details.neighborhood(),
-                details.street(), details.addressNumber(), BigDecimal.ZERO);
+                details.street(), details.addressNumber(), details.complement(), BigDecimal.ZERO);
         order.setExternalReference(key);
         order.setCheckoutRequestHash(requestHash);
 
@@ -1280,8 +1312,26 @@ public class PaymentService {
         }
     }
 
-    private static String checkoutRequestHash(CheckoutCustomer details, Map<Long, Integer> quantities) {
+    private static String checkoutRequestHash(CheckoutCustomer details, Map<Long, Integer> quantities,
+                                              CheckoutPersistenceIntent persistenceIntent) {
         StringBuilder canonical = new StringBuilder();
+        appendCheckoutSnapshot(canonical, details);
+        appendCanonical(canonical, Boolean.toString(persistenceIntent.profileTarget()));
+        appendCanonical(canonical, Boolean.toString(persistenceIntent.addressTarget()));
+        appendCanonical(canonical, Boolean.toString(persistenceIntent.defaultAddressTarget()));
+        appendCanonical(canonical, persistenceIntent.addressLabel());
+        appendQuantities(canonical, quantities);
+        return sha256(canonical);
+    }
+
+    private static String legacyCheckoutRequestHash(CheckoutCustomer details, Map<Long, Integer> quantities) {
+        StringBuilder canonical = new StringBuilder();
+        appendCheckoutSnapshot(canonical, details);
+        appendQuantities(canonical, quantities);
+        return sha256(canonical);
+    }
+
+    private static void appendCheckoutSnapshot(StringBuilder canonical, CheckoutCustomer details) {
         appendCanonical(canonical, details.fullName());
         appendCanonical(canonical, details.email());
         appendCanonical(canonical, details.cpf());
@@ -1292,10 +1342,17 @@ public class PaymentService {
         appendCanonical(canonical, details.neighborhood());
         appendCanonical(canonical, details.street());
         appendCanonical(canonical, details.addressNumber());
+        appendCanonical(canonical, details.complement());
+    }
+
+    private static void appendQuantities(StringBuilder canonical, Map<Long, Integer> quantities) {
         quantities.forEach((productId, quantity) -> {
             appendCanonical(canonical, productId.toString());
             appendCanonical(canonical, quantity.toString());
         });
+    }
+
+    private static String sha256(StringBuilder canonical) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(canonical.toString().getBytes(StandardCharsets.UTF_8)));
@@ -1366,7 +1423,13 @@ public class PaymentService {
 
     public record CheckoutCustomer(String fullName, String email, String cpf, String paymentMethod,
                                    String postalCode, String state, String city, String neighborhood,
-                                   String street, String addressNumber) { }
+                                   String street, String addressNumber, String complement) { }
+    public record CheckoutPersistenceIntent(boolean profileTarget, boolean addressTarget,
+                                            boolean defaultAddressTarget, String addressLabel) {
+        public static CheckoutPersistenceIntent none() {
+            return new CheckoutPersistenceIntent(false, false, false, null);
+        }
+    }
     public record RequestedItem(Long productId, Integer quantity) { }
     public record CheckoutResult(Long orderId, String checkoutUrl) { }
     public record PaymentView(Long orderId, String status, String paymentMethod, String paymentProvider,
@@ -1399,7 +1462,7 @@ public class PaymentService {
     public static final class CheckoutConflictException extends ResponseStatusException {
         private final String code;
 
-        private CheckoutConflictException(String code, String reason) {
+        public CheckoutConflictException(String code, String reason) {
             super(HttpStatus.CONFLICT, reason);
             this.code = code;
         }

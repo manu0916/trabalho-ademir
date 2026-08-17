@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Nexus Atelier">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Kicks Store">
   <defs>
     <linearGradient id="g" x1="10" y1="8" x2="56" y2="58" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#c9e0ff"/>
-      <stop offset="1" stop-color="#7396ff"/>
+      <stop stop-color="#ff5c45"/>
+      <stop offset="1" stop-color="#d8ff54"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="18" fill="#090b11"/>
-  <path d="M14 14h14l14 23V14h8v36H37L22 26v24h-8V14Z" fill="url(#g)"/>
-  <path d="M50 9v10M45 14h10" stroke="#f1f4fa" stroke-width="2" stroke-linecap="round"/>
+  <rect width="64" height="64" rx="18" fill="#17140f"/>
+  <path d="M14 13h9v14l14-14h12L33 29l17 22H39L27 35l-4 4v12h-9V13Z" fill="url(#g)"/>
+  <path d="M51 9v10M46 14h10" stroke="#fffdf7" stroke-width="2" stroke-linecap="round"/>
 </svg>

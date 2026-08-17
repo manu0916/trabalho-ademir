@@ -132,6 +132,24 @@ class StripePaymentIntegrationTests {
     }
 
     @Test
+    void anonymousCheckoutIsRejectedWithoutCreatingAnOrderOrReservingStock() throws Exception {
+        Product product = product("Produto para visitante", new BigDecimal("79.90"), 4);
+        long ordersBeforeRequest = orders.count();
+
+        mockMvc.perform(post("/api/customer/payments/checkout")
+                        .with(csrf())
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(checkoutBody(product.getId(), 1, "CARTAO_CREDITO")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Faça login para continuar."));
+
+        assertEquals(ordersBeforeRequest, orders.count());
+        assertEquals(4, products.findById(product.getId()).orElseThrow().getStockQuantity());
+        verify(stripe, never()).createCheckout(any(), anyList(), anyString());
+    }
+
+    @Test
     void checkoutUsesDatabasePriceReservesStockAndRetriesIdempotently() throws Exception {
         MockHttpSession customer = registerCustomer("checkout-price");
         Product product = product("SSD do banco", new BigDecimal("149.90"), 7);

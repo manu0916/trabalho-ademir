@@ -36,7 +36,14 @@ class SupabaseProfileConfigurationTests {
                 "payment_state", "refund_state", "dispute_state", "checkout_status",
                 "refund_attempt_amount", "purchase_orders_refund_attempt_amount_valid",
                 "payment_checkout_attempts", "payment_webhook_events", "payment_refunds",
-                "payment_disputes", "enable row level security", "revoke all on table"
+                "payment_disputes", "storefront_hero_settings", "storefront_hero_images",
+                "product_images", "product_images_position_unique", "product_images_product_order_idx",
+                "customer_addresses", "customer_addresses_one_default_unique", "profile_updated_at",
+                "alter table public.customer_addresses enable row level security",
+                "public.customer_addresses_id_seq", "complement varchar(120)",
+                "image_base64 varchar(2800000)", "storefront_hero_settings_interval_check",
+                "storefront_hero_images_position_unique", "sort_order between 100 and 107",
+                "enable row level security", "revoke all on table"
         }) {
             assertTrue(schema.contains(required), () -> "Missing production schema contract: " + required);
         }

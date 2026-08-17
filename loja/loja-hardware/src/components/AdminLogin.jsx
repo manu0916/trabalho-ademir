@@ -27,7 +27,7 @@ export default function AdminLogin({ onAuthenticated, storeName, theme }) {
           <h1>{theme?.title || 'Sua loja, sob seu olhar.'}</h1>
           <p>{theme?.footerStatement || 'Uma área reservada para cuidar de cada detalhe da vitrine.'}</p>
           <div className="admin-login-signals">
-            <span><b>01</b>Estoque</span><span><b>02</b>Pedidos</span><span><b>03</b>Identidade</span>
+            <span><b>01</b>Produtos</span><span><b>02</b>Estoque</span><span><b>03</b>Pedidos</span>
           </div>
         </div>
 

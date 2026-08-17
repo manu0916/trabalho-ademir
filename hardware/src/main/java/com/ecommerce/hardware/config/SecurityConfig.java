@@ -31,7 +31,7 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties({AdminProperties.class, SecurityProperties.class, StripeProperties.class})
+@EnableConfigurationProperties({AdminProperties.class, SecurityProperties.class, StripeProperties.class, StoreProperties.class})
 public class SecurityConfig {
 
     private static final Logger LOG = LoggerFactory.getLogger(SecurityConfig.class);
@@ -48,10 +48,10 @@ public class SecurityConfig {
                         // Spring Security's SPA support accepts the raw value sent from the XSRF cookie.
                         .spa()
                         .csrfTokenRepository(csrfTokenRepository)
-                        // Product writes authenticate with a signed Bearer token and therefore do
+                        // Product and order admin writes authenticate with a signed Bearer token and therefore do
                         // not rely on a browser CSRF cookie crossing the Vercel rewrite.
                         .ignoringRequestMatchers("/api/payments/stripe/webhook", "/api/products/**",
-                                "/api/admin/orders/*/refund"))
+                                "/api/storefront/hero/**", "/api/admin/orders/**"))
                 .securityContext(context -> context
                         .securityContextRepository(securityContextRepository)
                         .requireExplicitSave(true))
@@ -93,6 +93,9 @@ public class SecurityConfig {
                         // claim it. AdminBearerAuthenticationFilter already blocks every mutating
                         // method unless its signed Bearer is valid.
                         .requestMatchers(SecurityConfig::isProductEndpoint).permitAll()
+                        // The hero and its image bytes are public reads. Its mutating methods are
+                        // rejected by AdminBearerAuthenticationFilter before MVC parses a body.
+                        .requestMatchers(SecurityConfig::isStorefrontHeroEndpoint).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/payments/methods").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/admin/auth/csrf").permitAll()
@@ -164,6 +167,11 @@ public class SecurityConfig {
     private static boolean isProductEndpoint(HttpServletRequest request) {
         String path = request.getRequestURI();
         return "/api/products".equals(path) || path.startsWith("/api/products/");
+    }
+
+    private static boolean isStorefrontHeroEndpoint(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/api/storefront/hero".equals(path) || path.startsWith("/api/storefront/hero/");
     }
 
 }

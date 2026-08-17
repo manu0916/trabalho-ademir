@@ -56,6 +56,7 @@ export function isTerminalUncapturedPaymentStatus(status) {
 export function paymentMethodLabel(paymentMethod) {
   const normalized = String(paymentMethod || '').trim().toUpperCase();
   return ({
+    WHATSAPP: 'WhatsApp',
     CARD: 'Cartão de crédito',
     CARTAO_CREDITO: 'Cartão de crédito',
     PIX: 'Pix',

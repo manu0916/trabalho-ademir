@@ -81,9 +81,9 @@ export default function CartDrawer({ isOpen, onClose, cartItems, onRemoveItem, o
                 <span className="text-2xl font-extrabold text-[var(--text)]">R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
               </div>
               <button type="button" disabled={cartItems.length === 0} onClick={onCheckout} className="cart-checkout w-full cursor-pointer rounded-xl py-3.5 font-semibold transition-all disabled:cursor-not-allowed">
-                Finalizar compra segura <span aria-hidden="true">→</span>
+                Finalizar pelo WhatsApp <span aria-hidden="true">→</span>
               </button>
-              <p className="cart-security"><span aria-hidden="true">✓</span> Pagamento processado em ambiente protegido</p>
+              <p className="cart-security"><span aria-hidden="true">✓</span> Combine o pagamento diretamente pelo WhatsApp</p>
             </div>
           </motion.aside>
         </>

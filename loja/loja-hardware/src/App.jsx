@@ -1,18 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { MotionConfig } from 'framer-motion';
 import Navbar from './components/Navbar';
 import ProductGrid from './components/ProductGrid';
 import CartDrawer from './components/CartDrawer';
 import CheckoutDialog from './components/CheckoutDialog';
 import CustomerAccessModal from './components/CustomerAccessModal';
+import CustomerAccountModal from './components/CustomerAccountModal';
 import AdminPanel from './components/AdminPanel';
 import AdminLogin from './components/AdminLogin';
 import StoreHero from './components/StoreHero';
 import BrandFooter from './components/BrandFooter';
 import PaymentStatusPage from './components/PaymentStatusPage';
-import { STORE_THEMES } from './themes';
+import { STORE_THEME } from './themes';
 import {
   fetchProducts,
+  fetchHeroSettings,
   getCustomerSession,
   logoutCustomer,
   getAdminSession,
@@ -21,6 +23,11 @@ import {
   saveProduct,
   fetchAdminDashboard,
   refundAdminOrder,
+  confirmWhatsappPayment,
+  cancelWhatsappOrder,
+  saveHeroSettings,
+  uploadHeroImage,
+  deleteHeroImage,
   updateProductStock,
 } from './services/api';
 import {
@@ -31,12 +38,19 @@ import {
   storeCart,
   subtractPurchasedItems,
 } from './services/paymentStorage';
+import { normalizeCatalogText } from './utils/catalogCategories';
 
 const PAYMENT_ROUTES = {
   '/pagamento/sucesso': 'success',
   '/pagamento/cancelado': 'cancelled',
   '/pagamento/pendente': 'pending',
   '/pagamento/falhou': 'failed',
+};
+
+const DEFAULT_HERO_SETTINGS = {
+  mode: 'PRODUCTS',
+  intervalSeconds: 5,
+  manualImages: [],
 };
 
 function currentPaymentRoute() {
@@ -50,57 +64,41 @@ function isAdminAuthenticationError(error) {
 
 export default function App() {
   const paymentRouteKind = currentPaymentRoute();
-  const [themeId, setThemeId] = useState(() => localStorage.getItem('store-theme') || 'hardware');
-  const [storeName, setStoreName] = useState(() => localStorage.getItem('store-name') || STORE_THEMES.hardware.name);
+  const theme = STORE_THEME;
+  const storeName = STORE_THEME.name;
   const [currentView, setCurrentView] = useState('shop');
   const [cart, setCart] = useState(readStoredCart);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [isCustomerAccessOpen, setIsCustomerAccessOpen] = useState(false);
+  const [isCustomerAccountOpen, setIsCustomerAccountOpen] = useState(false);
+  const [resumeCheckoutAfterAuthentication, setResumeCheckoutAfterAuthentication] = useState(false);
+  const [resumeAccountAfterAuthentication, setResumeAccountAfterAuthentication] = useState(false);
+  const [resumeCheckoutAfterAccount, setResumeCheckoutAfterAccount] = useState(false);
+  const [checkoutDraft, setCheckoutDraft] = useState(null);
+  const [customerAccountDraft, setCustomerAccountDraft] = useState(null);
   const [products, setProducts] = useState([]);
   const [adminSession, setAdminSession] = useState(undefined);
   const [customerSession, setCustomerSession] = useState(undefined);
   const [productsError, setProductsError] = useState('');
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [heroSettings, setHeroSettings] = useState(DEFAULT_HERO_SETTINGS);
+  const [heroSettingsError, setHeroSettingsError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [dashboard, setDashboard] = useState(null);
-  const [themeTransition, setThemeTransition] = useState(null);
-  const themeTransitionTimer = useRef(null);
-  const theme = STORE_THEMES[themeId] || STORE_THEMES.hardware;
 
-  useEffect(() => { localStorage.setItem('store-theme', theme.id); }, [theme.id]);
   useEffect(() => { storeCart(cart); }, [cart]);
-  useEffect(() => () => window.clearTimeout(themeTransitionTimer.current), []);
   useEffect(() => {
     document.title = paymentRouteKind ? `Status do pagamento — ${storeName}` : `${storeName} — ${theme.category}`;
-    document.documentElement.style.colorScheme = theme.id === 'hardware' ? 'dark' : 'light';
+    document.documentElement.style.colorScheme = 'light';
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.themeColor);
-  }, [paymentRouteKind, storeName, theme.category, theme.id, theme.themeColor]);
+  }, [paymentRouteKind, storeName, theme.category, theme.themeColor]);
 
   useEffect(() => {
     if (!paymentRouteKind && new URLSearchParams(window.location.search).get('carrinho') === '1') {
       setIsCartOpen(true);
     }
   }, [paymentRouteKind]);
-
-  const handleThemeChange = (nextThemeId) => {
-    const nextTheme = STORE_THEMES[nextThemeId];
-    if (!nextTheme) return;
-    const previousTheme = STORE_THEMES[themeId];
-    setThemeTransition(nextThemeId);
-    window.clearTimeout(themeTransitionTimer.current);
-    themeTransitionTimer.current = window.setTimeout(() => setThemeTransition(null), 760);
-    setThemeId(nextThemeId);
-    setStoreName((currentName) => {
-      const nextName = currentName === previousTheme.name ? nextTheme.name : currentName;
-      localStorage.setItem('store-name', nextName);
-      return nextName;
-    });
-  };
-
-  const handleStoreNameChange = (nextName) => {
-    setStoreName(nextName);
-    localStorage.setItem('store-name', nextName);
-  };
 
   useEffect(() => {
     let isActive = true;
@@ -114,6 +112,13 @@ export default function App() {
       })
       .finally(() => {
         if (isActive) setIsLoadingProducts(false);
+      });
+    fetchHeroSettings()
+      .then((settings) => {
+        if (isActive) setHeroSettings(normalizeHeroSettings(settings));
+      })
+      .catch((error) => {
+        if (isActive) setHeroSettingsError(error.message || 'Não foi possível carregar as imagens de destaque.');
       });
     getAdminSession()
       .then((session) => {
@@ -136,6 +141,29 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if ((!resumeCheckoutAfterAuthentication && !resumeAccountAfterAuthentication) || customerSession === undefined) return;
+
+    if (customerSession) {
+      setIsCustomerAccessOpen(false);
+      if (resumeAccountAfterAuthentication) {
+        setResumeAccountAfterAuthentication(false);
+        setIsCustomerAccountOpen(true);
+        return;
+      }
+      setResumeCheckoutAfterAuthentication(false);
+      setIsCheckoutOpen(true);
+      return;
+    }
+
+    setIsCustomerAccessOpen(true);
+  }, [customerSession, resumeAccountAfterAuthentication, resumeCheckoutAfterAuthentication]);
+
+  useEffect(() => {
+    if (paymentRouteKind && customerSession === null) setIsCustomerAccessOpen(true);
+    if (customerSession && !resumeCheckoutAfterAuthentication) setIsCustomerAccessOpen(false);
+  }, [customerSession, paymentRouteKind, resumeCheckoutAfterAuthentication]);
+
+  useEffect(() => {
     if (!adminSession || currentView !== 'admin') return;
     let isActive = true;
     fetchAdminDashboard()
@@ -154,26 +182,65 @@ export default function App() {
   }, [adminSession, currentView]);
 
   const filteredProducts = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLocaleLowerCase('pt-BR');
+    const normalizedQuery = normalizeCatalogText(searchQuery);
     if (!normalizedQuery) return products;
 
     return products.filter((product) =>
       [product.name, product.category, product.description]
         .filter(Boolean)
-        .some((value) => value.toLocaleLowerCase('pt-BR').includes(normalizedQuery)),
+        .some((value) => normalizeCatalogText(value).includes(normalizedQuery)),
     );
   }, [products, searchQuery]);
 
-  const handleAddProduct = async (newProduct) => {
+  const handleAddProduct = async (newProduct, imageFiles) => {
     try {
-      const saved = await saveProduct(newProduct);
+      const saved = await saveProduct(newProduct, imageFiles);
       setProducts((previous) => [saved, ...previous]);
       setDashboard((previous) => previous && ({
         ...previous,
         registeredProducts: previous.registeredProducts + 1,
         inventory: [saved, ...previous.inventory],
       }));
-      alert('Produto salvo com sucesso no banco de dados.');
+      return saved;
+    } catch (error) {
+      if (isAdminAuthenticationError(error)) setAdminSession(null);
+      throw error;
+    }
+  };
+
+  const handleSaveHeroSettings = async (settings) => {
+    try {
+      const saved = normalizeHeroSettings(await saveHeroSettings(settings));
+      setHeroSettings(saved);
+      setHeroSettingsError('');
+      return saved;
+    } catch (error) {
+      if (isAdminAuthenticationError(error)) setAdminSession(null);
+      throw error;
+    }
+  };
+
+  const handleUploadHeroImages = async (images) => {
+    let saved = heroSettings;
+    try {
+      for (const image of images) {
+        saved = normalizeHeroSettings(await uploadHeroImage(image.file, image.altText));
+        setHeroSettings(saved);
+      }
+      setHeroSettingsError('');
+      return saved;
+    } catch (error) {
+      if (isAdminAuthenticationError(error)) setAdminSession(null);
+      throw error;
+    }
+  };
+
+  const handleDeleteHeroImage = async (imageId) => {
+    try {
+      const saved = normalizeHeroSettings(await deleteHeroImage(imageId));
+      setHeroSettings(saved);
+      setHeroSettingsError('');
+      return saved;
     } catch (error) {
       if (isAdminAuthenticationError(error)) setAdminSession(null);
       throw error;
@@ -214,6 +281,44 @@ export default function App() {
     }
   };
 
+  const handleConfirmWhatsappPayment = async (orderId) => {
+    try {
+      const updated = await confirmWhatsappPayment(orderId);
+      const updatedDetails = updated && typeof updated === 'object' ? updated : {};
+      setDashboard((previous) => previous && ({
+        ...previous,
+        orders: (previous.orders ?? []).map((order) =>
+          order.id === Number(orderId) || String(order.id) === String(orderId)
+            ? { ...order, ...updatedDetails, canConfirmWhatsapp: false }
+            : order
+        ),
+      }));
+      return updated;
+    } catch (error) {
+      if (isAdminAuthenticationError(error)) setAdminSession(null);
+      throw error;
+    }
+  };
+
+  const handleCancelWhatsappOrder = async (orderId) => {
+    try {
+      const updated = await cancelWhatsappOrder(orderId);
+      const updatedDetails = updated && typeof updated === 'object' ? updated : {};
+      setDashboard((previous) => previous && ({
+        ...previous,
+        orders: (previous.orders ?? []).map((order) =>
+          order.id === Number(orderId) || String(order.id) === String(orderId)
+            ? { ...order, ...updatedDetails, canConfirmWhatsapp: false, canCancelWhatsapp: false }
+            : order
+        ),
+      }));
+      return updated;
+    } catch (error) {
+      if (isAdminAuthenticationError(error)) setAdminSession(null);
+      throw error;
+    }
+  };
+
   const handleAdminLogin = async (credentials) => {
     const session = await loginAdmin(credentials);
     setAdminSession(session);
@@ -247,8 +352,81 @@ export default function App() {
 
   const handleCheckout = () => {
     setIsCartOpen(false);
-    setIsCheckoutOpen(true);
+    setCheckoutDraft(null);
+    if (customerSession) {
+      setIsCheckoutOpen(true);
+      return;
+    }
+
+    setResumeCheckoutAfterAuthentication(true);
+    if (customerSession === null) setIsCustomerAccessOpen(true);
   };
+
+  const handleCustomerAuthenticated = useCallback((session) => {
+    setCustomerSession(session);
+    setIsCustomerAccessOpen(false);
+  }, []);
+
+  const handleOpenCustomerAccess = useCallback(() => {
+    setResumeCheckoutAfterAuthentication(false);
+    setResumeAccountAfterAuthentication(false);
+    setIsCustomerAccessOpen(true);
+  }, []);
+
+  const handleOpenCustomerAccount = useCallback(() => {
+    if (!customerSession) return;
+    setResumeCheckoutAfterAccount(false);
+    setCustomerAccountDraft(null);
+    setIsCustomerAccountOpen(true);
+  }, [customerSession]);
+
+  const handleCloseCustomerAccount = useCallback(() => {
+    setIsCustomerAccountOpen(false);
+    setCustomerAccountDraft(null);
+    if (resumeCheckoutAfterAccount) {
+      setResumeCheckoutAfterAccount(false);
+      setIsCheckoutOpen(true);
+    }
+  }, [resumeCheckoutAfterAccount]);
+
+  const handleCustomerAccountAuthenticationRequired = useCallback((draft) => {
+    if (draft) setCustomerAccountDraft(draft);
+    setIsCustomerAccountOpen(false);
+    setCustomerSession(null);
+    setResumeAccountAfterAuthentication(true);
+    setIsCustomerAccessOpen(true);
+  }, []);
+
+  const handleCustomerAccessClose = useCallback(() => {
+    const shouldReturnToCart = resumeCheckoutAfterAuthentication || resumeCheckoutAfterAccount;
+    setIsCustomerAccessOpen(false);
+    setCheckoutDraft(null);
+    setCustomerAccountDraft(null);
+    setResumeCheckoutAfterAuthentication(false);
+    setResumeAccountAfterAuthentication(false);
+    setResumeCheckoutAfterAccount(false);
+    if (shouldReturnToCart) setIsCartOpen(true);
+  }, [resumeCheckoutAfterAccount, resumeCheckoutAfterAuthentication]);
+
+  const handleCheckoutAuthenticationRequired = useCallback((draft) => {
+    if (draft) setCheckoutDraft(draft);
+    setCustomerSession(null);
+    setIsCheckoutOpen(false);
+    setResumeCheckoutAfterAuthentication(true);
+    setIsCustomerAccessOpen(true);
+  }, []);
+
+  const handleCloseCheckout = useCallback(() => {
+    setIsCheckoutOpen(false);
+    setCheckoutDraft(null);
+  }, []);
+
+  const handleManageAccountFromCheckout = useCallback(() => {
+    setIsCheckoutOpen(false);
+    setResumeCheckoutAfterAccount(true);
+    setCustomerAccountDraft(null);
+    setIsCustomerAccountOpen(true);
+  }, []);
 
   const handlePaymentConfirmed = useCallback((payment) => {
     if (payment?.paymentVerified !== true) return false;
@@ -261,12 +439,31 @@ export default function App() {
   }, []);
 
   const handlePaymentTerminated = useCallback((orderId) => forgetPendingCheckout(orderId), []);
-  const handleCustomerAuthenticationRequired = useCallback(() => setCustomerSession(null), []);
+  const handleCustomerAuthenticationRequired = useCallback(() => {
+    setCustomerSession(null);
+    setIsCustomerAccessOpen(true);
+  }, []);
   const handleSwitchCustomer = useCallback(async () => {
     try {
       await logoutCustomer();
     } finally {
       setCustomerSession(null);
+      setIsCustomerAccessOpen(true);
+    }
+  }, []);
+
+  const handleCustomerLogout = useCallback(async () => {
+    try {
+      await logoutCustomer();
+    } finally {
+      setCustomerSession(null);
+      setIsCustomerAccountOpen(false);
+      setCheckoutDraft(null);
+      setCustomerAccountDraft(null);
+      setResumeAccountAfterAuthentication(false);
+      setResumeCheckoutAfterAccount(false);
+      setIsCustomerAccessOpen(false);
+      setResumeCheckoutAfterAuthentication(false);
     }
   }, []);
 
@@ -284,12 +481,14 @@ export default function App() {
             onPaymentConfirmed={handlePaymentConfirmed}
             onPaymentTerminated={handlePaymentTerminated}
           />
-          <CustomerAccessModal
-            isOpen={customerSession === null}
-            onAuthenticated={setCustomerSession}
-            storeName={storeName}
-            initialMode="login"
-          />
+          {isCustomerAccessOpen && (
+            <CustomerAccessModal
+              isOpen
+              onAuthenticated={handleCustomerAuthenticated}
+              storeName={storeName}
+              initialMode="login"
+            />
+          )}
         </div>
       </MotionConfig>
     );
@@ -299,19 +498,6 @@ export default function App() {
     <MotionConfig reducedMotion="user">
     <div className="app-shell min-h-screen" data-theme={theme.id}>
       <a href="#main-content" className="skip-link">Pular para o conteúdo</a>
-      <AnimatePresence>
-        {themeTransition && (
-          <motion.div
-            key={themeTransition}
-            aria-hidden="true"
-            className="theme-sweep"
-            initial={{ opacity: 0, clipPath: 'circle(0% at 50% 50%)' }}
-            animate={{ opacity: 1, clipPath: 'circle(82% at 50% 50%)' }}
-            exit={{ opacity: 0, transition: { duration: 0.28 } }}
-            transition={{ duration: 0.48, ease: [0.22, 1, 0.36, 1] }}
-          />
-        )}
-      </AnimatePresence>
       <Navbar
         storeName={storeName}
         cartCount={cart.reduce((total, item) => total + item.quantity, 0)}
@@ -320,12 +506,21 @@ export default function App() {
         onViewChange={setCurrentView}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        customerSession={customerSession}
+        onCustomerAccess={handleOpenCustomerAccess}
+        onCustomerAccount={handleOpenCustomerAccount}
+        onCustomerLogout={handleCustomerLogout}
       />
 
       <main id="main-content" className={currentView === 'shop' ? 'shop-main' : 'admin-main py-6'}>
         {currentView === 'shop' ? (
           <>
-            <StoreHero theme={theme} onExplore={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })} />
+            <StoreHero
+              theme={theme}
+              products={products}
+              heroSettings={heroSettings}
+              onExplore={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })}
+            />
             {isLoadingProducts ? (
               <section className="store-state mx-auto max-w-7xl px-5 py-20 sm:px-8" aria-live="polite">
                 <p className="section-kicker">Preparando a curadoria</p>
@@ -340,7 +535,13 @@ export default function App() {
                 <p className="mt-3 text-sm text-rose-500">{productsError}</p>
               </section>
             ) : (
-              <ProductGrid products={filteredProducts} onAddToCart={handleAddToCart} theme={theme} />
+              <ProductGrid
+                products={filteredProducts}
+                onAddToCart={handleAddToCart}
+                theme={theme}
+                searchQuery={searchQuery}
+                onClearSearch={() => setSearchQuery('')}
+              />
             )}
             <BrandFooter storeName={storeName} theme={theme} />
           </>
@@ -348,15 +549,19 @@ export default function App() {
           <p className="py-12 text-center text-sm text-zinc-400">Verificando acesso...</p>
         ) : adminSession ? (
           <AdminPanel
-            currentStoreName={storeName}
-            onUpdateStoreName={handleStoreNameChange}
             theme={theme}
-            themeId={themeId}
-            onThemeChange={handleThemeChange}
+            products={products}
+            heroSettings={heroSettings}
+            heroSettingsError={heroSettingsError}
+            onSaveHeroSettings={handleSaveHeroSettings}
+            onUploadHeroImages={handleUploadHeroImages}
+            onDeleteHeroImage={handleDeleteHeroImage}
             onAddProduct={handleAddProduct}
             dashboard={dashboard}
             onUpdateStock={handleUpdateStock}
             onRefundOrder={handleRefundOrder}
+            onConfirmWhatsappPayment={handleConfirmWhatsappPayment}
+            onCancelWhatsappOrder={handleCancelWhatsappOrder}
             onLogout={handleLogout}
           />
         ) : (
@@ -372,21 +577,58 @@ export default function App() {
         onCheckout={handleCheckout}
       />
 
-      <CustomerAccessModal
-        isOpen={customerSession === null}
-        onAuthenticated={setCustomerSession}
-        storeName={storeName}
-        theme={theme}
-      />
+      {isCustomerAccessOpen && (
+        <CustomerAccessModal
+          isOpen
+          onAuthenticated={handleCustomerAuthenticated}
+          onClose={handleCustomerAccessClose}
+          storeName={storeName}
+          initialMode="login"
+          checkoutRequired={resumeCheckoutAfterAuthentication || resumeCheckoutAfterAccount}
+        />
+      )}
+
+      {isCustomerAccountOpen && customerSession && (
+        <CustomerAccountModal
+          isOpen
+          onClose={handleCloseCustomerAccount}
+          onAuthenticationRequired={handleCustomerAccountAuthenticationRequired}
+          initialDraft={customerAccountDraft}
+          onDraftChange={setCustomerAccountDraft}
+        />
+      )}
 
       {isCheckoutOpen && (
         <CheckoutDialog
           isOpen={isCheckoutOpen}
-          onClose={() => setIsCheckoutOpen(false)}
+          onClose={handleCloseCheckout}
           cartItems={cart}
+          onAuthenticationRequired={handleCheckoutAuthenticationRequired}
+          onManageAccount={handleManageAccountFromCheckout}
+          initialDraft={checkoutDraft}
+          onDraftChange={setCheckoutDraft}
         />
       )}
     </div>
     </MotionConfig>
   );
+}
+
+function normalizeHeroSettings(settings) {
+  const mode = settings?.mode === 'MANUAL' ? 'MANUAL' : 'PRODUCTS';
+  const intervalSeconds = Number(settings?.intervalSeconds);
+  return {
+    mode,
+    intervalSeconds: Number.isInteger(intervalSeconds) && intervalSeconds >= 3 && intervalSeconds <= 30 ? intervalSeconds : 5,
+    manualImages: Array.isArray(settings?.manualImages)
+      ? settings.manualImages
+        .filter((image) => image?.id && typeof image.imageUrl === 'string')
+        .map((image, index) => ({
+          id: image.id,
+          imageUrl: image.imageUrl,
+          altText: typeof image.altText === 'string' ? image.altText : '',
+          sortOrder: Number.isInteger(image.sortOrder) ? image.sortOrder : index,
+        }))
+      : [],
+  };
 }

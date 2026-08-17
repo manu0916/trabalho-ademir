@@ -60,6 +60,9 @@ public class PurchaseOrder {
     @Column(name = "address_number", length = 20)
     private String addressNumber;
 
+    @Column(length = 120)
+    private String complement;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal total;
 
@@ -124,6 +127,14 @@ public class PurchaseOrder {
     @Column(name = "boleto_expires_days")
     private Long boletoExpiresDays;
 
+    /** Validated wa.me HTTPS URL stored once when a WHATSAPP order is created. */
+    @Column(name = "whatsapp_url", length = 2048)
+    private String whatsappUrl;
+
+    /** Instant after which an unconfirmed WHATSAPP order may be automatically cancelled. */
+    @Column(name = "whatsapp_expires_at")
+    private Instant whatsappExpiresAt;
+
     @Column(name = "payment_intent_id", unique = true, length = 255)
     private String paymentIntentId;
 
@@ -168,12 +179,19 @@ public class PurchaseOrder {
 
     public PurchaseOrder(CustomerAccount customer, String fullName, String email, String cpf,
                          String paymentMethod, BigDecimal total) {
-        this(customer, fullName, email, cpf, paymentMethod, null, null, null, null, null, null, total);
+        this(customer, fullName, email, cpf, paymentMethod, null, null, null, null, null, null, null, total);
     }
 
     public PurchaseOrder(CustomerAccount customer, String fullName, String email, String cpf, String paymentMethod,
                          String postalCode, String state, String city, String neighborhood, String street,
                          String addressNumber, BigDecimal total) {
+        this(customer, fullName, email, cpf, paymentMethod, postalCode, state, city, neighborhood, street,
+                addressNumber, null, total);
+    }
+
+    public PurchaseOrder(CustomerAccount customer, String fullName, String email, String cpf, String paymentMethod,
+                         String postalCode, String state, String city, String neighborhood, String street,
+                         String addressNumber, String complement, BigDecimal total) {
         this.customer = customer;
         this.fullName = fullName;
         this.email = email;
@@ -185,6 +203,7 @@ public class PurchaseOrder {
         this.neighborhood = neighborhood;
         this.street = street;
         this.addressNumber = addressNumber;
+        this.complement = complement;
         this.total = total;
     }
 
@@ -241,6 +260,40 @@ public class PurchaseOrder {
 
     public void restoreInventory() {
         this.inventoryStatus = InventoryStatus.RESTORED;
+    }
+
+    /**
+     * Transitions a newly-created order to the WHATSAPP flow.
+     * Must be called inside the same transaction that persists the order.
+     */
+    public void setupWhatsappOrder(String whatsappUrl, Instant expiresAt) {
+        this.paymentProvider = PaymentProvider.WHATSAPP;
+        this.whatsappUrl = whatsappUrl;
+        this.whatsappExpiresAt = expiresAt;
+        reserveInventory();
+        touchPayment();
+    }
+
+    /**
+     * Manually confirms that payment was received for a WHATSAPP order.
+     * Records a full capture equal to the order total in BRL and commits stock.
+     * Idempotent if the order is already SUCCEEDED.
+     */
+    public void confirmWhatsappPayment() {
+        if (paymentState == com.ecommerce.hardware.model.PaymentState.SUCCEEDED) return;
+        if (paymentProvider != PaymentProvider.WHATSAPP) return;
+        markPaid(null, total, "brl");
+        commitInventory();
+    }
+
+    /**
+     * Cancels a WHATSAPP order and releases its reserved stock.
+     * No-op if the order is already in a terminal state.
+     */
+    public void cancelWhatsappOrder() {
+        if (!canCancelPayment()) return;
+        releaseInventory();
+        markCanceled();
     }
 
     public void markProcessing(String paymentIntentId) {
@@ -485,6 +538,7 @@ public class PurchaseOrder {
     public String getNeighborhood() { return neighborhood; }
     public String getStreet() { return street; }
     public String getAddressNumber() { return addressNumber; }
+    public String getComplement() { return complement; }
     public BigDecimal getTotal() { return total; }
     public PaymentStatus getStatus() { return status; }
     public PaymentState getPaymentState() { return paymentState; }
@@ -500,6 +554,8 @@ public class PurchaseOrder {
     public String getCheckoutStatus() { return checkoutStatus; }
     public String getCheckoutUrl() { return checkoutUrl; }
     public String getCheckoutRequestHash() { return checkoutRequestHash; }
+    public String getWhatsappUrl() { return whatsappUrl; }
+    public Instant getWhatsappExpiresAt() { return whatsappExpiresAt; }
     public Instant getCheckoutExpiresAt() { return checkoutExpiresAt; }
     public String getProviderSuccessUrl() { return providerSuccessUrl; }
     public String getProviderCancelUrl() { return providerCancelUrl; }

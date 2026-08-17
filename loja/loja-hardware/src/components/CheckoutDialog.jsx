@@ -1,25 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPaymentCheckout, fetchPaymentMethods } from '../services/api';
+import {
+  createPaymentCheckout,
+  fetchCustomerAccount,
+} from '../services/api';
+import CustomerAddressFields from './CustomerAddressFields';
+import { addressPayload, addressToForm, EMPTY_CUSTOMER_ADDRESS, formatCep, isAddressComplete, onlyDigits } from '../utils/customerAddress';
+import useModalAccessibility from '../hooks/useModalAccessibility';
 import {
   beginCheckoutAttempt,
   discardCheckoutAttempt,
   rememberPendingCheckout,
 } from '../services/paymentStorage';
 
+const EMPTY_PROFILE = { fullName: '', email: '', cpf: '' };
+const MAX_SAVED_ADDRESSES = 10;
+
 function isValidCpf(value) {
-  const cpf = value.replace(/\D/g, '');
+  const cpf = onlyDigits(value);
   if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
-  const digit = (length) => { const total = cpf.slice(0, length).split('').reduce((sum, number, index) => sum + Number(number) * (length + 1 - index), 0); const result = (total * 10) % 11; return result === 10 ? 0 : result; };
+  const digit = (length) => {
+    const total = cpf.slice(0, length).split('').reduce((sum, number, index) => sum + Number(number) * (length + 1 - index), 0);
+    const result = (total * 10) % 11;
+    return result === 10 ? 0 : result;
+  };
   return digit(9) === Number(cpf[9]) && digit(10) === Number(cpf[10]);
 }
-const onlyDigits = (value) => value.replace(/\D/g, '');
-const formatCep = (value) => value.length > 5 ? `${value.slice(0, 5)}-${value.slice(5)}` : value;
-const CARD_PAYMENT_METHOD = 'CARTAO_CREDITO';
-const PAYMENT_METHOD_LABELS = {
-  CARTAO_CREDITO: 'Cartão de crédito',
-  BOLETO: 'Boleto',
-  PIX: 'Pix',
-};
 
 function isDefinitiveAttemptConflict(error) {
   if (Number(error?.status) !== 409) return false;
@@ -29,174 +34,312 @@ function isDefinitiveAttemptConflict(error) {
     || /chave de idempot[eê]ncia.{0,60}(?:j[aá] )?foi usada com outro checkout/i.test(message);
 }
 
-export default function CheckoutDialog({ isOpen, onClose, cartItems }) {
-  const [fullName, setFullName] = useState(''); const [email, setEmail] = useState(''); const [cpf, setCpf] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState(CARD_PAYMENT_METHOD); const [postalCode, setPostalCode] = useState('');
-  const [availablePaymentMethods, setAvailablePaymentMethods] = useState([CARD_PAYMENT_METHOD]);
-  const [paymentMethodsMessage, setPaymentMethodsMessage] = useState('');
-  const [isLoadingPaymentMethods, setIsLoadingPaymentMethods] = useState(true);
-  const [state, setState] = useState(''); const [city, setCity] = useState(''); const [neighborhood, setNeighborhood] = useState('');
-  const [street, setStreet] = useState(''); const [addressNumber, setAddressNumber] = useState('');
-  const [error, setError] = useState(''); const [cepMessage, setCepMessage] = useState(''); const [isLookingUpCep, setIsLookingUpCep] = useState(false); const [isSubmitting, setIsSubmitting] = useState(false);
+function isAuthenticationError(error) {
+  return error?.status === 401 || error?.status === 403;
+}
+
+export default function CheckoutDialog({
+  isOpen,
+  onClose,
+  cartItems,
+  onAuthenticationRequired,
+  onManageAccount,
+  initialDraft = null,
+  onDraftChange,
+}) {
+  const initialDraftRef = useRef(initialDraft);
+  const [account, setAccount] = useState(null);
+  const [personalForm, setPersonalForm] = useState(() => initialDraft?.personalForm || EMPTY_PROFILE);
+  const [addressMode, setAddressMode] = useState(() => initialDraft?.addressMode === 'saved' ? 'saved' : 'new');
+  const [selectedAddressId, setSelectedAddressId] = useState(() => String(initialDraft?.selectedAddressId || ''));
+  const [newAddress, setNewAddress] = useState(() => addressToForm(initialDraft?.newAddress || EMPTY_CUSTOMER_ADDRESS));
+  const [saveNewAddress, setSaveNewAddress] = useState(() => initialDraft?.saveNewAddress !== false);
+  const [isLoadingAccount, setIsLoadingAccount] = useState(true);
+  const [accountLoadError, setAccountLoadError] = useState('');
+  const [accountLoadAttempt, setAccountLoadAttempt] = useState(0);
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  // State shown after a successful order creation when the redirect was blocked
+  const [whatsappFallback, setWhatsappFallback] = useState(null);
   const total = useMemo(() => cartItems.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0), [cartItems]);
   const fullNameRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const dialogRef = useRef(null);
   const submissionInProgressRef = useRef(false);
-  const cepLookupRef = useRef({ sequence: 0, controller: null });
+  const latestDraftRef = useRef(null);
+  latestDraftRef.current = { personalForm, addressMode, selectedAddressId, newAddress, saveNewAddress };
 
   useEffect(() => {
-    if (!isOpen) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    fullNameRef.current?.focus();
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape' && !submissionInProgressRef.current) onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
+    if (!isOpen) return;
+    onDraftChange?.(latestDraftRef.current);
+  }, [addressMode, isOpen, newAddress, onDraftChange, personalForm, saveNewAddress, selectedAddressId]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
     const controller = new AbortController();
     let isActive = true;
-    setIsLoadingPaymentMethods(true);
-    setPaymentMethodsMessage('');
+    setIsLoadingAccount(true);
+    setAccount(null);
+    setAccountLoadError('');
+    setError('');
 
-    fetchPaymentMethods({ signal: controller.signal })
-      .then((methods) => {
+    fetchCustomerAccount({ signal: controller.signal })
+      .then((nextAccount) => {
         if (!isActive) return;
-        setAvailablePaymentMethods(methods);
-        setPaymentMethod((current) => (
-          methods.includes(current)
-            ? current
-            : methods.includes(CARD_PAYMENT_METHOD) ? CARD_PAYMENT_METHOD : methods[0]
-        ));
+        const restoredDraft = initialDraftRef.current;
+        const addresses = Array.isArray(nextAccount?.addresses) ? nextAccount.addresses : [];
+        const preferredAddress = addresses.find((address) => address.isDefault) || addresses[0];
+        const restoredAddress = addresses.find((address) => String(address.id) === String(restoredDraft?.selectedAddressId || ''));
+        const canSaveAnotherAddress = addresses.length < MAX_SAVED_ADDRESSES;
+        setAccount({ ...nextAccount, profile: nextAccount?.profile || null, addresses });
+        setPersonalForm({
+          fullName: nextAccount?.profile?.fullName || restoredDraft?.personalForm?.fullName || '',
+          email: nextAccount?.profile?.email || restoredDraft?.personalForm?.email || '',
+          cpf: nextAccount?.profile ? '' : restoredDraft?.personalForm?.cpf || '',
+        });
+        const shouldRestoreNewAddress = restoredDraft?.addressMode === 'new';
+        setAddressMode(shouldRestoreNewAddress || !preferredAddress ? 'new' : 'saved');
+        setSelectedAddressId(restoredAddress ? String(restoredAddress.id) : preferredAddress ? String(preferredAddress.id) : '');
+        setNewAddress(addressToForm(restoredDraft?.newAddress || { ...EMPTY_CUSTOMER_ADDRESS, isDefault: addresses.length === 0 }));
+        setSaveNewAddress(canSaveAnotherAddress && restoredDraft?.saveNewAddress !== false);
+        window.setTimeout(() => {
+          if (!nextAccount?.profile) fullNameRef.current?.focus();
+        }, 0);
       })
       .catch((requestError) => {
         if (!isActive || requestError?.name === 'AbortError') return;
-        setAvailablePaymentMethods([CARD_PAYMENT_METHOD]);
-        setPaymentMethod(CARD_PAYMENT_METHOD);
-        setPaymentMethodsMessage('Não foi possível consultar as opções agora; somente cartão está disponível nesta tentativa.');
+        if (isAuthenticationError(requestError)) {
+          onAuthenticationRequired?.(latestDraftRef.current);
+          return;
+        }
+        setAccountLoadError(requestError.message || 'Não foi possível carregar os dados da sua conta.');
       })
       .finally(() => {
-        if (isActive) setIsLoadingPaymentMethods(false);
+        if (isActive) setIsLoadingAccount(false);
       });
 
     return () => {
       isActive = false;
       controller.abort();
     };
-  }, [isOpen]);
+  }, [accountLoadAttempt, isOpen, onAuthenticationRequired]);
 
-  useEffect(() => () => {
-    cepLookupRef.current.sequence += 1;
-    cepLookupRef.current.controller?.abort();
-    cepLookupRef.current.controller = null;
-  }, []);
-
-  if (!isOpen) return null;
-
-  const lookupCep = async (rawCep) => {
-    if (rawCep.length !== 8) return;
-    cepLookupRef.current.controller?.abort();
-    const sequence = cepLookupRef.current.sequence + 1;
-    const controller = new AbortController();
-    cepLookupRef.current = { sequence, controller };
-    setIsLookingUpCep(true); setCepMessage('Buscando endereço...');
-    try {
-      const response = await fetch(`https://viacep.com.br/ws/${rawCep}/json/`, { signal: controller.signal });
-      const address = await response.json();
-      if (controller.signal.aborted || cepLookupRef.current.sequence !== sequence) return;
-      if (!response.ok || address.erro) throw new Error('CEP não encontrado. Preencha o endereço manualmente.');
-      setStreet(address.logradouro || ''); setNeighborhood(address.bairro || ''); setCity(address.localidade || ''); setState(address.uf || '');
-      setCepMessage(address.logradouro ? 'Endereço preenchido. Confirme o número.' : 'CEP localizado. Complete rua e bairro.');
-    } catch (lookupError) {
-      if (controller.signal.aborted || cepLookupRef.current.sequence !== sequence) return;
-      setCepMessage(lookupError.message || 'Não foi possível buscar o CEP.');
-    }
-    finally {
-      if (cepLookupRef.current.sequence === sequence) {
-        cepLookupRef.current.controller = null;
-        setIsLookingUpCep(false);
-      }
-    }
-  };
-  const handleCepChange = (event) => {
-    const nextCep = onlyDigits(event.target.value).slice(0, 8);
-    cepLookupRef.current.sequence += 1;
-    cepLookupRef.current.controller?.abort();
-    cepLookupRef.current.controller = null;
-    setIsLookingUpCep(false);
-    setPostalCode(nextCep);
-    setCepMessage('');
-    if (nextCep !== postalCode) {
-      setState(''); setCity(''); setNeighborhood(''); setStreet(''); setAddressNumber('');
-    }
-    if (nextCep.length === 8) lookupCep(nextCep);
-  };
   const handleClose = () => {
     if (!submissionInProgressRef.current) onClose();
   };
+
+  useModalAccessibility({
+    isOpen,
+    dialogRef,
+    initialFocusRef: closeButtonRef,
+    onClose: handleClose,
+    canClose: !isSubmitting,
+  });
+
+  if (!isOpen) return null;
+
+  const savedAddressLimitReached = (account?.addresses?.length || 0) >= MAX_SAVED_ADDRESSES;
+
   const handleSubmit = async (event) => {
-    event.preventDefault(); setError('');
+    event.preventDefault();
+    setError('');
     if (submissionInProgressRef.current) return;
-    if (isLoadingPaymentMethods) return setError('Aguarde a confirmação das formas de pagamento disponíveis.');
-    if (!availablePaymentMethods.includes(paymentMethod)) return setError('Selecione uma forma de pagamento disponível.');
-    if (!isValidCpf(cpf)) return setError('Informe um CPF válido.');
-    if (postalCode.length !== 8 || !state || !city || !neighborhood || !street || !addressNumber) return setError('Preencha todos os dados de entrega.');
+    if (isLoadingAccount) return setError('Aguarde o carregamento dos dados da sua conta.');
+    if (accountLoadError) return setError('Recarregue os dados da sua conta antes de continuar.');
+    if (!account?.profile && !isValidCpf(personalForm.cpf)) return setError('Informe um CPF válido para salvar seus dados pessoais.');
+    if (addressMode === 'saved' && !account?.addresses?.some((address) => String(address.id) === selectedAddressId)) return setError('Selecione um endereço de entrega.');
+    if (addressMode === 'new' && !isAddressComplete(newAddress, saveNewAddress)) return setError('Preencha todos os dados do novo endereço.');
+
     const items = cartItems.map((item) => ({ productId: item.id, quantity: item.quantity }));
     let attempt;
     try {
       attempt = beginCheckoutAttempt(items);
     } catch (storageError) {
-      return setError(storageError.message || 'Não foi possível preparar esta tentativa de pagamento.');
+      setError(storageError.message || 'Não foi possível preparar esta tentativa de pagamento.');
+      return;
     }
+
+    const checkoutData = {
+      items,
+      ...(account?.profile
+        ? { personalDataMode: 'SAVED' }
+        : {
+          personalDataMode: 'NEW',
+          fullName: personalForm.fullName.trim(),
+          email: personalForm.email.trim(),
+          cpf: personalForm.cpf,
+          saveProfile: true,
+        }),
+    };
+
+    if (addressMode === 'saved') {
+      checkoutData.addressId = Number(selectedAddressId);
+    } else {
+      const address = addressPayload(newAddress);
+      Object.assign(checkoutData, {
+        addressLabel: address.label,
+        postalCode: address.postalCode,
+        state: address.state,
+        city: address.city,
+        neighborhood: address.neighborhood,
+        street: address.street,
+        addressNumber: address.addressNumber,
+        complement: address.complement,
+        saveAddress: saveNewAddress,
+        makeDefaultAddress: saveNewAddress && address.isDefault,
+      });
+    }
+
     submissionInProgressRef.current = true;
     setIsSubmitting(true);
     try {
-      const checkout = await createPaymentCheckout({ fullName, email, cpf, paymentMethod, postalCode, state, city, neighborhood, street, addressNumber, items }, attempt.idempotencyKey);
+      const checkout = await createPaymentCheckout(checkoutData, attempt.idempotencyKey);
       if (!rememberPendingCheckout(checkout.orderId, attempt.items, attempt.idempotencyKey)) {
-        throw new Error('O checkout foi criado, mas não foi possível guardar sua referência. Mantenha esta janela aberta e tente novamente.');
+        throw new Error('O pedido foi criado, mas não foi possível guardar sua referência. Mantenha esta janela aberta e tente novamente.');
       }
-      window.location.assign(checkout.checkoutUrl);
+      // Redirect to WhatsApp. If the browser blocks the navigation (pop-up blocker, etc.)
+      // show a fallback with the link so the customer can still complete the purchase.
+      try {
+        window.location.assign(checkout.whatsappUrl);
+      } catch {
+        setWhatsappFallback({ orderId: checkout.orderId, whatsappUrl: checkout.whatsappUrl });
+        setIsSubmitting(false);
+        submissionInProgressRef.current = false;
+      }
     } catch (requestError) {
+      if (isAuthenticationError(requestError)) {
+        onAuthenticationRequired?.(latestDraftRef.current);
+        return;
+      }
       const attemptMustRotate = isDefinitiveAttemptConflict(requestError);
       if (attemptMustRotate) discardCheckoutAttempt(attempt.idempotencyKey);
       const message = requestError.message || 'Não foi possível registrar seu pedido.';
       setError(attemptMustRotate ? `${message} Clique novamente para iniciar uma nova tentativa.` : message);
+    } finally {
+      submissionInProgressRef.current = false;
+      setIsSubmitting(false);
     }
-    finally { submissionInProgressRef.current = false; setIsSubmitting(false); }
   };
-  const inputClass = 'checkout-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm outline-none';
 
   return (
-    <div className="checkout-overlay fixed inset-0 z-[80] overflow-y-auto p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="checkout-title" aria-describedby="checkout-description" className="checkout-dialog mx-auto my-4 w-full max-w-5xl rounded-3xl p-5 shadow-2xl sm:my-6 sm:p-8">
+    <div data-modal-root="true" className="checkout-overlay fixed inset-0 z-[80] overflow-y-auto p-4">
+      <div ref={dialogRef} tabIndex="-1" aria-busy={isLoadingAccount || isSubmitting} role="dialog" aria-modal="true" aria-labelledby="checkout-title" aria-describedby="checkout-description" className="checkout-dialog mx-auto my-4 w-full max-w-5xl rounded-3xl p-5 shadow-2xl sm:my-6 sm:p-8">
         <div className="flex items-start justify-between gap-4">
-          <div><p className="section-kicker">Finalizar compra</p><h2 id="checkout-title" className="mt-1 text-2xl font-black text-[var(--text)]">Entrega e pagamento</h2><p id="checkout-description" className="mt-1 text-sm text-[var(--muted)]">Precisamos destes dados para enviar seu pedido certinho.</p></div>
-          <button type="button" onClick={handleClose} disabled={isSubmitting} className="close-checkout text-2xl disabled:cursor-wait disabled:opacity-40" aria-label="Fechar checkout">×</button>
+          <div>
+            <p className="section-kicker">Finalizar compra</p>
+            <h2 id="checkout-title" className="mt-1 text-2xl font-black text-[var(--text)]">Seus dados e entrega</h2>
+            <p id="checkout-description" className="mt-1 text-sm text-[var(--muted)]">Use o que já está salvo ou cadastre uma nova entrega.</p>
+          </div>
+          <button ref={closeButtonRef} type="button" onClick={handleClose} disabled={isSubmitting} className="close-checkout text-2xl disabled:cursor-wait disabled:opacity-40" aria-label="Fechar checkout">×</button>
         </div>
 
-        <form onSubmit={handleSubmit} className="checkout-layout mt-7">
+        <form onSubmit={handleSubmit} aria-busy={isSubmitting} className="checkout-layout mt-7">
           <div className="checkout-fields space-y-6">
-            <fieldset><legend className="checkout-legend">Seus dados</legend><div className="mt-3 grid gap-4 sm:grid-cols-2"><Field label="Nome completo"><input ref={fullNameRef} value={fullName} onChange={(event) => setFullName(event.target.value)} minLength="5" maxLength="160" autoComplete="name" required className={inputClass} /></Field><Field label="E-mail"><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength="254" autoComplete="email" required className={inputClass} /></Field><Field label="CPF"><input value={cpf} onChange={(event) => setCpf(event.target.value)} inputMode="numeric" maxLength="14" placeholder="000.000.000-00" required className={inputClass} /></Field><Field label="Forma de pagamento"><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} disabled={isLoadingPaymentMethods} className={`${inputClass} disabled:cursor-wait disabled:opacity-60`}>{availablePaymentMethods.map((method) => <option key={method} value={method}>{PAYMENT_METHOD_LABELS[method]}</option>)}</select>{paymentMethodsMessage && <small className="mt-2 block text-xs leading-5 text-amber-600">{paymentMethodsMessage}</small>}</Field></div></fieldset>
-            <fieldset><legend className="checkout-legend">Endereço de entrega</legend><div className="mt-3 grid gap-4 sm:grid-cols-6"><Field label="CEP" className="sm:col-span-2"><div className="relative"><input value={formatCep(postalCode)} onChange={handleCepChange} inputMode="numeric" maxLength="9" autoComplete="postal-code" placeholder="00000-000" required className={inputClass} />{isLookingUpCep && <span className="cep-loader" aria-label="Buscando CEP" />}</div></Field><Field label="Estado" className="sm:col-span-1"><input value={state} onChange={(event) => setState(event.target.value.toUpperCase().slice(0, 2))} maxLength="2" autoComplete="address-level1" required className={inputClass} /></Field><Field label="Município" className="sm:col-span-3"><input value={city} onChange={(event) => setCity(event.target.value)} maxLength="120" autoComplete="address-level2" required className={inputClass} /></Field><Field label="Rua" className="sm:col-span-4"><input value={street} onChange={(event) => setStreet(event.target.value)} maxLength="180" autoComplete="street-address" required className={inputClass} /></Field><Field label="Número" className="sm:col-span-2"><input value={addressNumber} onChange={(event) => setAddressNumber(event.target.value)} maxLength="20" autoComplete="address-line2" required className={inputClass} /></Field><Field label="Bairro" className="sm:col-span-6"><input value={neighborhood} onChange={(event) => setNeighborhood(event.target.value)} maxLength="160" autoComplete="address-level3" required className={inputClass} /></Field></div>{cepMessage && <p aria-live="polite" className={`mt-3 text-xs ${cepMessage.startsWith('CEP não') || cepMessage.startsWith('Não foi') ? 'text-rose-500' : 'text-emerald-600'}`}>{cepMessage}</p>}</fieldset>
+            {isLoadingAccount ? (
+              <div className="checkout-account-loading" aria-live="polite"><span />Preparando seus dados salvos...</div>
+            ) : accountLoadError ? (
+              <div className="checkout-account-loading checkout-load-error" role="group" aria-labelledby="checkout-load-error-title">
+                <div>
+                  <strong id="checkout-load-error-title">Não foi possível carregar sua conta</strong>
+                  <p role="alert">{accountLoadError}</p>
+                  <button type="button" onClick={() => setAccountLoadAttempt((current) => current + 1)}>Tentar novamente</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <fieldset disabled={isSubmitting} className="checkout-data-section">
+                  <legend className="sr-only">Dados pessoais</legend>
+                  <div className="checkout-section-heading">
+                    <p className="checkout-legend">1 · Dados pessoais</p>
+                    {account?.profile && <span className="account-saved-badge">✓ Salvos na conta</span>}
+                  </div>
+                  {account?.profile ? (
+                    <div className="checkout-saved-profile mt-4">
+                      <span className="checkout-profile-avatar" aria-hidden="true">{account.profile.fullName?.charAt(0)?.toUpperCase()}</span>
+                      <div><strong>{account.profile.fullName}</strong><p>{account.profile.email}</p><small>CPF {account.profile.cpfMasked}</small></div>
+                      {onManageAccount && <button type="button" onClick={onManageAccount}>Alterar</button>}
+                    </div>
+                  ) : (
+                    <div className="mt-4">
+                      <p className="checkout-first-use-note">Preencha uma vez. Vamos salvar estes dados na sua conta para as próximas compras.</p>
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <Field label="Nome completo" className="sm:col-span-2"><input ref={fullNameRef} value={personalForm.fullName} onChange={(event) => setPersonalForm((current) => ({ ...current, fullName: event.target.value }))} minLength="5" maxLength="160" autoComplete="name" required className="checkout-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm outline-none" /></Field>
+                        <Field label="E-mail"><input type="email" value={personalForm.email} onChange={(event) => setPersonalForm((current) => ({ ...current, email: event.target.value }))} maxLength="254" autoComplete="email" required className="checkout-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm outline-none" /></Field>
+                        <Field label="CPF"><input value={personalForm.cpf} onChange={(event) => setPersonalForm((current) => ({ ...current, cpf: event.target.value }))} inputMode="numeric" maxLength="14" placeholder="000.000.000-00" required className="checkout-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm outline-none" /></Field>
+                      </div>
+                    </div>
+                  )}
+                </fieldset>
+
+                <fieldset disabled={isSubmitting} className="checkout-data-section">
+                  <legend className="checkout-legend">2 · Endereço de entrega</legend>
+                  <div className="checkout-address-choices mt-4">
+                    {account?.addresses?.map((address) => (
+                      <label key={address.id} className={`checkout-address-choice ${addressMode === 'saved' && selectedAddressId === String(address.id) ? 'is-selected' : ''}`}>
+                        <input type="radio" name="delivery-address" checked={addressMode === 'saved' && selectedAddressId === String(address.id)} onChange={() => { setAddressMode('saved'); setSelectedAddressId(String(address.id)); }} />
+                        <span className="checkout-choice-check" aria-hidden="true" />
+                        <span><strong>{address.label}{address.isDefault && <i>Principal</i>}</strong><small>{address.street}, {address.addressNumber}{address.complement ? ` · ${address.complement}` : ''}</small><small>{address.city}/{address.state} · {formatCep(address.postalCode)}</small></span>
+                      </label>
+                    ))}
+                    <label className={`checkout-address-choice is-new ${addressMode === 'new' ? 'is-selected' : ''}`}>
+                      <input type="radio" name="delivery-address" checked={addressMode === 'new'} onChange={() => setAddressMode('new')} />
+                      <span className="checkout-choice-check" aria-hidden="true" />
+                      <span><strong>+ Adicionar novo endereço</strong><small>Use apenas nesta compra ou salve na sua conta.</small></span>
+                    </label>
+                  </div>
+                  {addressMode === 'new' && (
+                    <div className="checkout-new-address mt-5">
+                      <CustomerAddressFields value={newAddress} onChange={setNewAddress} requireLabel={saveNewAddress} disabled={isSubmitting} showDefaultToggle={false} />
+                      <label className={`checkout-save-address mt-4 ${savedAddressLimitReached ? 'is-disabled' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={saveNewAddress}
+                          disabled={savedAddressLimitReached}
+                          onChange={(event) => setSaveNewAddress(event.target.checked)}
+                        />
+                        <span>
+                          <strong>Salvar na minha conta</strong>
+                          <small>{savedAddressLimitReached ? 'Você já atingiu o limite de 10 endereços. Este será usado somente nesta compra.' : 'Desmarque para usar este endereço somente nesta compra.'}</small>
+                        </span>
+                      </label>
+                      {saveNewAddress && (
+                        <label className="account-default-toggle mt-4 flex cursor-pointer items-center gap-3 text-sm text-[var(--text)]">
+                          <input type="checkbox" checked={newAddress.isDefault} onChange={(event) => setNewAddress((current) => ({ ...current, isDefault: event.target.checked }))} />
+                          Usar como meu endereço principal
+                        </label>
+                      )}
+                    </div>
+                  )}
+                </fieldset>
+              </>
+            )}
           </div>
 
           <aside className="checkout-summary">
             <div><p className="checkout-legend">Sua seleção</p><p className="mt-2 text-sm text-[var(--muted)]">{cartItems.reduce((sum, item) => sum + item.quantity, 0)} itens preparados para você.</p></div>
             <div className="checkout-items">{cartItems.map((item) => <div className="checkout-item" key={item.id}><img src={item.imageUrl} alt="" loading="lazy" decoding="async" /><div><strong>{item.name}</strong><small>{item.quantity}× · R$ {Number(item.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</small></div></div>)}</div>
             <div className="checkout-total flex items-center justify-between rounded-2xl p-4 text-sm"><span className="text-[var(--muted)]">Total do pedido</span><strong className="text-lg text-[var(--text)]">R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></div>
+            {whatsappFallback && (
+              <div role="alert" className="checkout-whatsapp-fallback rounded-2xl p-4 text-sm" style={{background:'var(--surface-elevated)',border:'1px solid var(--border)'}}>
+                <p className="font-semibold text-[var(--text)]">Pedido #{whatsappFallback.orderId} criado com sucesso!</p>
+                <p className="mt-1 text-[var(--muted)]">O redirecionamento automático foi bloqueado. Clique no botão abaixo para abrir o WhatsApp.</p>
+                <a href={whatsappFallback.whatsappUrl} target="_blank" rel="noopener noreferrer" className="admin-primary mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 font-semibold no-underline">Abrir WhatsApp para combinar o pagamento</a>
+              </div>
+            )}
             {error && <p role="alert" aria-live="polite" className="text-sm text-rose-500">{error}</p>}
-            <button disabled={isSubmitting || isLookingUpCep || isLoadingPaymentMethods} className="admin-primary w-full cursor-pointer rounded-xl py-3 font-semibold disabled:cursor-wait disabled:opacity-60">{isSubmitting ? 'Redirecionando para pagamento...' : isLoadingPaymentMethods ? 'Carregando formas de pagamento...' : 'Ir para pagamento seguro'}</button>
-            <p className="checkout-security"><span aria-hidden="true">✓</span> Pagamento processado no checkout seguro da Stripe. A sacola será mantida até a confirmação.</p>
+            <button disabled={isSubmitting || isLoadingAccount || Boolean(accountLoadError)} className="admin-primary w-full cursor-pointer rounded-xl py-3 font-semibold disabled:cursor-wait disabled:opacity-60">
+              {isSubmitting ? 'Criando pedido...' : isLoadingAccount ? 'Carregando seus dados...' : accountLoadError ? 'Recarregue os dados da conta' : (
+                <span className="flex items-center justify-center gap-2"><span aria-hidden="true">💬</span> Finalizar pelo WhatsApp</span>
+              )}
+            </button>
+            <p className="checkout-security"><span aria-hidden="true">✓</span> Pedido registrado com segurança. Combine o pagamento diretamente pelo WhatsApp.</p>
           </aside>
         </form>
       </div>
     </div>
   );
 }
-function Field({ label, className = '', children }) { return <label className={`block text-sm font-medium text-[var(--text)] ${className}`}>{label}{children}</label>; }
+
+function Field({ label, className = '', children }) {
+  return <label className={`block text-sm font-medium text-[var(--text)] ${className}`}>{label}{children}</label>;
+}

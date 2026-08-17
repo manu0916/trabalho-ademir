@@ -193,11 +193,53 @@ export async function fetchProducts() {
   return productsRequest;
 }
 
-export async function saveProduct(productData) {
+export async function fetchHeroSettings() {
+  const response = await request('/storefront/hero');
+  return parseResponse(response);
+}
+
+export async function saveHeroSettings(settings) {
+  const response = await adminRequest('/storefront/hero', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  return parseResponse(response);
+}
+
+export async function uploadHeroImage(file, altText = '') {
+  const body = new FormData();
+  body.append('file', file);
+  if (altText.trim()) body.append('altText', altText.trim());
+
+  const response = await adminRequest('/storefront/hero/images', {
+    method: 'POST',
+    body,
+  });
+  return parseResponse(response);
+}
+
+export async function deleteHeroImage(imageId) {
+  const normalizedId = Number(imageId);
+  if (!Number.isSafeInteger(normalizedId) || normalizedId < 1) {
+    throw new Error('Imagem de destaque inválida.');
+  }
+  const response = await adminRequest(`/storefront/hero/images/${normalizedId}`, { method: 'DELETE' });
+  return parseResponse(response);
+}
+
+export async function saveProduct(productData, imageFiles) {
+  if (!Array.isArray(imageFiles) || imageFiles.length < 1 || imageFiles.length > 8) {
+    throw new Error('Selecione de 1 a 8 fotos para cadastrar o tênis.');
+  }
+
+  const body = new FormData();
+  body.append('product', new Blob([JSON.stringify(productData)], { type: 'application/json' }));
+  imageFiles.forEach((file) => body.append('images', file, file.name));
+
   const response = await adminRequest('/products', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(productData),
+    body,
   });
   return parseResponse(response);
 }
@@ -289,6 +331,53 @@ export async function logoutCustomer() {
   }
 }
 
+export async function fetchCustomerAccount(options = {}) {
+  const response = await request('/customer/account', { signal: options.signal });
+  return parseResponse(response);
+}
+
+export async function saveCustomerProfile(profile) {
+  const response = await protectedRequest('/customer/account/profile', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profile),
+  });
+  return parseResponse(response);
+}
+
+export async function createCustomerAddress(address) {
+  const response = await protectedRequest('/customer/account/addresses', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(address),
+  });
+  return parseResponse(response);
+}
+
+export async function updateCustomerAddress(addressId, address) {
+  const normalizedId = Number(addressId);
+  if (!Number.isSafeInteger(normalizedId) || normalizedId < 1) {
+    throw new Error('Endereço inválido. Atualize a página e tente novamente.');
+  }
+  const response = await protectedRequest(`/customer/account/addresses/${normalizedId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(address),
+  });
+  return parseResponse(response);
+}
+
+export async function deleteCustomerAddress(addressId) {
+  const normalizedId = Number(addressId);
+  if (!Number.isSafeInteger(normalizedId) || normalizedId < 1) {
+    throw new Error('Endereço inválido. Atualize a página e tente novamente.');
+  }
+  const response = await protectedRequest(`/customer/account/addresses/${normalizedId}`, {
+    method: 'DELETE',
+  });
+  return parseResponse(response);
+}
+
 const KNOWN_PAYMENT_METHODS = new Set(['CARTAO_CREDITO', 'BOLETO', 'PIX']);
 
 export async function fetchPaymentMethods(options = {}) {
@@ -320,23 +409,21 @@ export async function createPaymentCheckout(checkoutData, idempotencyKey) {
     body: JSON.stringify(checkoutData),
   });
   const checkout = await parseResponse(response);
-  if (!checkout?.orderId || typeof checkout.checkoutUrl !== 'string') {
-    throw new Error('O servidor não retornou uma sessão de pagamento válida. Tente novamente.');
+  if (!checkout?.orderId || typeof checkout.whatsappUrl !== 'string') {
+    throw new Error('O servidor não retornou uma sessão de pedido válida. Tente novamente.');
   }
 
-  let checkoutUrl;
+  let waUrl;
   try {
-    checkoutUrl = new URL(checkout.checkoutUrl);
+    waUrl = new URL(checkout.whatsappUrl);
   } catch {
-    throw new Error('O servidor retornou um endereço de pagamento inválido. Tente novamente.');
+    throw new Error('O servidor retornou um endereço de WhatsApp inválido. Tente novamente.');
   }
-  const localHttp = checkoutUrl.protocol === 'http:'
-    && ['localhost', '127.0.0.1'].includes(checkoutUrl.hostname);
-  if (checkoutUrl.protocol !== 'https:' && !localHttp) {
-    throw new Error('O checkout seguro não está disponível neste momento. Tente novamente.');
+  if (waUrl.protocol !== 'https:' || waUrl.hostname !== 'wa.me') {
+    throw new Error('A URL de redirecionamento não é um link válido do WhatsApp. Tente novamente.');
   }
 
-  return { ...checkout, checkoutUrl: checkoutUrl.toString() };
+  return { orderId: checkout.orderId, whatsappUrl: waUrl.toString() };
 }
 
 function normalizedSessionId(sessionId) {
@@ -375,6 +462,28 @@ export async function cancelPaymentOrder(orderId) {
 
 export async function refundAdminOrder(orderId) {
   const response = await adminRequest(`/admin/orders/${normalizedOrderId(orderId)}/refund`, {
+    method: 'POST',
+  });
+  return parseResponse(response);
+}
+
+/**
+ * Manually confirms that a WhatsApp payment was received.
+ * Requires a valid admin Bearer token stored in the session.
+ */
+export async function confirmWhatsappPayment(orderId) {
+  const response = await adminRequest(`/admin/orders/${normalizedOrderId(orderId)}/confirm-whatsapp-payment`, {
+    method: 'POST',
+  });
+  return parseResponse(response);
+}
+
+/**
+ * Cancels a pending WhatsApp order and releases its reserved inventory.
+ * Requires a valid admin Bearer token stored in the session.
+ */
+export async function cancelWhatsappOrder(orderId) {
+  const response = await adminRequest(`/admin/orders/${normalizedOrderId(orderId)}/cancel-whatsapp-order`, {
     method: 'POST',
   });
   return parseResponse(response);

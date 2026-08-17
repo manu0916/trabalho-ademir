@@ -39,16 +39,22 @@ public class OrderController {
     }
 
     private OrderResponse toResponse(PurchaseOrder order) {
-        return new OrderResponse(order.getId(), order.getFullName(), order.getEmail(), order.getCpf(),
+        return new OrderResponse(order.getId(), order.getFullName(), order.getEmail(), maskCpf(order.getCpf()),
                 order.getPaymentMethod(), order.getPostalCode(), order.getState(), order.getCity(), order.getNeighborhood(),
-                order.getStreet(), order.getAddressNumber(), order.getTotal(), order.getStatus().name(), order.getCreatedAt(),
+                order.getStreet(), order.getAddressNumber(), order.getComplement(), order.getTotal(),
+                order.getStatus().name(), order.getCreatedAt(),
                 order.getItems().stream().map(item -> new OrderItemResponse(item.getProductId(), item.getProductName(),
                         item.getQuantity(), item.getUnitPrice())).toList());
     }
 
+    private static String maskCpf(String cpf) {
+        return cpf == null || cpf.length() != 11 ? "***.***.***-**" : "***.***.***-" + cpf.substring(9);
+    }
+
     public record OrderResponse(Long id, String fullName, String email, String cpf, String paymentMethod,
                                 String postalCode, String state, String city, String neighborhood, String street,
-                                String addressNumber, BigDecimal total, String status, java.time.Instant createdAt,
+                                String addressNumber, String complement, BigDecimal total, String status,
+                                java.time.Instant createdAt,
                                 List<OrderItemResponse> items) { }
 
     public record OrderItemResponse(Long productId, String productName, Integer quantity, BigDecimal unitPrice) { }
