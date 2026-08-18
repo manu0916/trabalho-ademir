@@ -1,6 +1,6 @@
-# 👟 Kicks Store — Sneaker Importer (Extensão Chrome)
+# 👟 Kicks Store — Sneaker Importer & Exporter (Extensão Chrome)
 
-Extensão do Google Chrome (Manifest V3) criada para escanear páginas de lojas de tênis (Nike, Centauro, Netshoes, Adidas, Authentic Feet, Dafiti, Shopify, etc.), extrair fotos em alta resolução, preço, nome e descrição, e cadastrar o produto **diretamente no catálogo da Kicks Store**.
+Extensão do Google Chrome (Manifest V3) criada para escanear páginas de lojas de tênis (Nike, Centauro, Netshoes, Adidas, Authentic Feet, Dafiti, Shopify, etc.), extrair fotos em alta resolução, preço, nome e descrição, e gerar um **arquivo `.json` autossuficiente que a Kicks Store lê e importa automaticamente**.
 
 ---
 
@@ -21,41 +21,36 @@ Extensão do Google Chrome (Manifest V3) criada para escanear páginas de lojas 
 
 ---
 
-## ⚙️ Configuração de Conexão
+## 🎯 Como Usar: Fluxo de Exportação e Importação por Arquivo (.JSON)
 
-1. Clique no ícone da extensão.
-2. Acesse a aba **"⚙️ Conexão API"** (ou clique na engrenagem no topo).
-3. Verifique os dados:
-   - **URL da API (Back-end)**:
-     - Desenvolvimento local: `http://localhost:8080`
-     - Produção no Render: `https://seu-backend.onrender.com`
-   - **E-mail do Administrador**: `admin@example.test` (ou seu e-mail configurado)
-   - **Senha do Administrador**: `password1234`
-4. Clique em **"⚡ Testar Conexão"**. Quando aparecer o indicador verde 🟢, sua extensão está conectada e autenticada!
-
----
-
-## 🎯 Como Usar para Importar Tênis
-
+### Passo 1: Na Extensão (Exportar o Tênis)
 1. Navegue até a página de qualquer tênis em qualquer loja (ex: Nike, Centauro, Netshoes, Adidas, etc.).
 2. Clique no ícone da extensão **Kicks Store**.
 3. Clique no botão **"🔍 Escanear Tênis Nesta Página"**:
    - A extensão captura automaticamente o **Nome**, **Preço**, **Descrição**, **Categoria Esportiva** e todas as **Fotos em alta resolução**.
 4. **Revise e Personalize**:
    - Marque ou desmarque as fotos que deseja incluir na galeria.
-   - Ajuste o preço ou categoria (*Basquete, Vôlei, Handball, Futsal, Futebol*), se desejar.
-   - Defina a quantidade em estoque (padrão: 10).
-5. Clique em **"🚀 Enviar para a Kicks Store"**.
-6. A extensão baixa as fotos e envia a requisição multipart para a API da sua loja. O tênis aparecerá **imediatamente na vitrine da Kicks Store**!
+   - Ajuste o preço, categoria ou estoque se desejar.
+5. Clique em **"💾 Baixar Arquivo do Tênis (.JSON)"**:
+   - O arquivo `kicks-[nome-do-tenis].json` será baixado com todas as fotos (em Base64) e especificações.
+   - *Dica:* Você também pode clicar em **"➕ Salvar no Lote"** para acumular vários tênis e baixar todos em um único arquivo de lote!
+
+### Passo 2: Na Loja Virtual (Importar para o Catálogo)
+1. Acesse o **Painel do Administrador** na sua loja Kicks Store.
+2. Na seção **"📦 Importar Tênis via Arquivo (.JSON)"**, arraste ou selecione o arquivo baixado.
+3. A loja lê o arquivo instantaneamente e exibe a prévia com fotos.
+4. Escolha:
+   - **"✨ Preencher no Formulário"**: Preenche todos os campos para você conferir antes de salvar.
+   - **"⚡ Salvar Direto no Catálogo"**: Cadastra imediatamente o tênis (e faz upload de todas as fotos) no banco de dados e na vitrine!
 
 ---
 
-## 📁 Estrutura dos Arquivos
+## 📁 Estrutura dos Arquivos da Extensão
 
 - `manifest.json`: Manifesto Chrome V3 com permissões `activeTab`, `scripting`, `storage` e `<all_urls>`.
-- `popup.html`: Interface visual responsiva do importador.
+- `popup.html`: Interface visual responsiva do extrator e gerenciador de lotes.
 - `popup.css`: Tema dark moderno alinhado à identidade visual da Kicks Store.
-- `popup.js`: Controlador do scanner, gerenciamento de tokens admin, conversão de imagens e envio multipart.
-- `content.js`: Mecanismo inteligente de scraping (JSON-LD, OpenGraph, seletores DOM e galerias).
+- `popup.js`: Controlador do scanner, conversor de imagens em Base64, gerador de arquivos JSON e exportador em lote.
+- `content.js`: Mecanismo inteligente de scraping (JSON-LD, OpenGraph, seletores DOM e galerias em alta resolução).
 - `background.js`: Service worker em segundo plano.
 - `icons/`: Ícones oficiais do emblema Kicks Store.

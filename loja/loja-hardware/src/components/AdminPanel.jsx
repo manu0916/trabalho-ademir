@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import HeroGallerySettings from './HeroGallerySettings';
 import ProductImagePicker from './ProductImagePicker';
+import ProductFileImporter from './ProductFileImporter';
 import { paymentMethodLabel, paymentStatusMeta } from '../services/paymentStatus';
 import { releaseImagePreviewUrls } from '../utils/imagePreparation';
 import { PRODUCT_CATEGORIES } from '../utils/catalogCategories';
@@ -270,18 +271,52 @@ export default function AdminPanel({
       category,
     };
 
+    const filesToUpload = imageEntries
+      .map((entry) => (entry.file ? entry.file : entry))
+      .filter((file) => file instanceof File || file instanceof Blob);
+
+    if (!editingId && filesToUpload.length === 0) {
+      setProductFormError('Selecione pelo menos uma foto para cadastrar o produto.');
+      return;
+    }
+
     setIsSavingProduct(true);
     try {
       if (editingId) {
-        await onUpdateProduct(editingId, payload, imageEntries);
+        if (onUpdateProduct) {
+          await onUpdateProduct(editingId, payload, imageEntries);
+        }
         setProductFormMessage('Produto atualizado com sucesso.');
       } else {
-        await onAddProduct(payload, imageEntries);
-        setProductFormMessage('Produto cadastrado com sucesso.');
+        await onAddProduct(payload, filesToUpload);
+        setProductFormMessage('Produto cadastrado com sucesso e publicado na vitrine!');
       }
       resetProductForm();
     } catch (error) {
       setProductFormError(error?.message || 'Não foi possível salvar o produto.');
+    } finally {
+      setIsSavingProduct(false);
+    }
+  };
+
+  const handleFillFormFromImport = (importedData) => {
+    releaseImagePreviewUrls(imageEntries);
+    setEditingId(null);
+    setName(importedData.name || '');
+    setDescription(importedData.description || '');
+    setPrice(String(importedData.price ?? ''));
+    setStockQuantity(String(importedData.stockQuantity ?? '10'));
+    setCategory(importedData.category || PRODUCT_CATEGORIES[0]?.id || 'Basquete');
+    setImageEntries(importedData.imageEntries || []);
+    setProductFormError('');
+    setProductFormMessage(`Dados e fotos de "${importedData.name}" carregados no formulário abaixo!`);
+  };
+
+  const handleDirectSaveFromImport = async (productPayload, files) => {
+    setIsSavingProduct(true);
+    try {
+      await onAddProduct(productPayload, files);
+      setProductFormMessage(`Produto "${productPayload.name}" cadastrado com sucesso no catálogo!`);
     } finally {
       setIsSavingProduct(false);
     }
@@ -362,6 +397,13 @@ export default function AdminPanel({
       </div>
 
       <HeroGallerySettings />
+
+      {/* JSON File Importer */}
+      <ProductFileImporter
+        onFillForm={handleFillFormFromImport}
+        onDirectSave={handleDirectSaveFromImport}
+        isSaving={isSavingProduct}
+      />
 
       {/* Product Form */}
       <section className="admin-section rounded-3xl p-6 sm:p-8 bg-[var(--surface-solid)] border border-[var(--line)]">

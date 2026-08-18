@@ -1,13 +1,16 @@
-// Kicks Store - Popup Controller
+// Kicks Store - Sneaker Exporter & Importer Controller
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Elements
+  // Navigation & Views
   const tabScanner = document.getElementById('tabScanner');
+  const tabBatch = document.getElementById('tabBatch');
   const tabSettings = document.getElementById('tabSettings');
   const scannerView = document.getElementById('scannerView');
+  const batchView = document.getElementById('batchView');
   const settingsView = document.getElementById('settingsView');
   const toggleSettingsBtn = document.getElementById('toggleSettingsBtn');
   
+  // Scanner View Elements
   const scanPageBtn = document.getElementById('scanPageBtn');
   const statusMessage = document.getElementById('statusMessage');
   const productForm = document.getElementById('productForm');
@@ -21,8 +24,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const productStockInput = document.getElementById('productStock');
   const productCategoryInput = document.getElementById('productCategory');
   const productDescriptionInput = document.getElementById('productDescription');
+  
+  const downloadProductJsonBtn = document.getElementById('downloadProductJsonBtn');
+  const addToBatchBtn = document.getElementById('addToBatchBtn');
+  const copyProductJsonBtn = document.getElementById('copyProductJsonBtn');
   const submitProductBtn = document.getElementById('submitProductBtn');
   
+  // Batch View Elements
+  const batchCountBadge = document.getElementById('batchCountBadge');
+  const batchCountTitle = document.getElementById('batchCountTitle');
+  const batchItemsList = document.getElementById('batchItemsList');
+  const downloadBatchJsonBtn = document.getElementById('downloadBatchJsonBtn');
+  const clearBatchBtn = document.getElementById('clearBatchBtn');
+
+  // Settings View Elements
   const apiUrlInput = document.getElementById('apiUrl');
   const adminEmailInput = document.getElementById('adminEmail');
   const adminPasswordInput = document.getElementById('adminPassword');
@@ -33,32 +48,39 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openStoreLink = document.getElementById('openStoreLink');
 
   let currentImages = [];
+  let currentScannedMetadata = {};
   let adminToken = null;
+  let batchProducts = [];
 
-  // ── 1. Settings Initialization ──────────────────────────────────────────────
+  // ── 1. Initialization ───────────────────────────────────────────────────────
   await loadSettings();
+  await loadBatch();
   checkApiConnection();
 
   // Tab Switching
   tabScanner.addEventListener('click', () => switchTab('scanner'));
+  tabBatch.addEventListener('click', () => switchTab('batch'));
   tabSettings.addEventListener('click', () => switchTab('settings'));
   toggleSettingsBtn.addEventListener('click', () => switchTab('settings'));
 
   function switchTab(tab) {
+    [tabScanner, tabBatch, tabSettings].forEach(t => t.classList.remove('is-active'));
+    [scannerView, batchView, settingsView].forEach(v => v.classList.remove('is-active'));
+
     if (tab === 'scanner') {
       tabScanner.classList.add('is-active');
-      tabSettings.classList.remove('is-active');
       scannerView.classList.add('is-active');
-      settingsView.classList.remove('is-active');
+    } else if (tab === 'batch') {
+      tabBatch.classList.add('is-active');
+      batchView.classList.add('is-active');
+      renderBatchView();
     } else {
       tabSettings.classList.add('is-active');
-      tabScanner.classList.remove('is-active');
       settingsView.classList.add('is-active');
-      scannerView.classList.remove('is-active');
     }
   }
 
-  // ── 2. Scan Current Page ──────────────────────────────────────────────────
+  // ── 2. Scan Current Webpage ────────────────────────────────────────────────
   scanPageBtn.addEventListener('click', async () => {
     hideStatus();
     scanPageBtn.disabled = true;
@@ -75,7 +97,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           files: ['content.js']
         });
       } catch {
-        // Script might already be injected, continue
+        // Continue if already injected
       }
 
       // Send SCAN_PAGE message to content script
@@ -100,6 +122,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   function populateProduct(product) {
     if (!product) return;
 
+    currentScannedMetadata = {
+      sourceStore: product.sourceStore || '',
+      sourceUrl: product.url || '',
+    };
+
     productNameInput.value = product.title || '';
     productPriceInput.value = product.price || '';
     productStockInput.value = '10';
@@ -117,10 +144,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     emptyState.classList.add('is-hidden');
     productForm.classList.remove('is-hidden');
 
-    showStatus(`Tênis escaneado com sucesso! Encontradas ${currentImages.length} fotos.`, 'success');
+    showStatus(`Tênis escaneado com sucesso! Encontradas ${currentImages.length} fotos prontas para exportar.`, 'success');
   }
 
-  // ── 3. Gallery Rendering & Image Selection ─────────────────────────────────
+  // ── 3. Image Gallery Controller ───────────────────────────────────────────
   function renderGallery() {
     imageGallery.innerHTML = '';
     let selectedCount = 0;
@@ -170,8 +197,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderGallery();
   });
 
-  // ── 4. Submit Product to Kicks Store ───────────────────────────────────────
-  submitProductBtn.addEventListener('click', async () => {
+  // ── 4. Build Self-Contained Product Data Object ────────────────────────────
+  async function buildCurrentProductData(progressCallback) {
     const name = productNameInput.value.trim();
     const price = parseFloat(productPriceInput.value);
     const stockQuantity = parseInt(productStockInput.value, 10);
@@ -179,58 +206,309 @@ document.addEventListener('DOMContentLoaded', async () => {
     const description = productDescriptionInput.value.trim();
     const selectedImages = currentImages.filter(img => img.selected);
 
-    if (!name) return showStatus('Informe o nome do tênis.', 'error');
-    if (isNaN(price) || price <= 0) return showStatus('Informe um preço válido.', 'error');
-    if (isNaN(stockQuantity) || stockQuantity < 0) return showStatus('Informe um estoque válido.', 'error');
-    if (selectedImages.length === 0) return showStatus('Selecione pelo menos uma foto para a galeria.', 'error');
+    if (!name) throw new Error('Informe o nome do tênis.');
+    if (isNaN(price) || price <= 0) throw new Error('Informe um preço válido.');
+    if (isNaN(stockQuantity) || stockQuantity < 0) throw new Error('Informe um estoque válido.');
+    if (selectedImages.length === 0) throw new Error('Selecione pelo menos uma foto para a galeria.');
 
+    // Fetch and convert images to Base64 data URLs for 100% self-contained JSON
+    const processedImages = [];
+    for (let i = 0; i < selectedImages.length; i++) {
+      const imgItem = selectedImages[i];
+      progressCallback?.(`Baixando e processando foto ${i + 1} de ${selectedImages.length}…`);
+      
+      const dataUrl = await fetchImageAsDataUrl(imgItem.url);
+      processedImages.push({
+        id: i + 1,
+        url: imgItem.url,
+        dataUrl: dataUrl || imgItem.url, // Full Base64 or fallback to original URL
+        name: `foto-${i + 1}.jpg`
+      });
+    }
+
+    return {
+      name,
+      price,
+      stockQuantity,
+      category,
+      description,
+      sourceStore: currentScannedMetadata.sourceStore || '',
+      sourceUrl: currentScannedMetadata.sourceUrl || '',
+      coverImageUrl: processedImages[0]?.dataUrl || processedImages[0]?.url || '',
+      images: processedImages
+    };
+  }
+
+  async function fetchImageAsDataUrl(url) {
+    if (!url) return null;
+    if (url.startsWith('data:image/')) return url;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  // ── 5. Download Single Sneaker JSON File ───────────────────────────────────
+  downloadProductJsonBtn.addEventListener('click', async () => {
+    hideStatus();
+    downloadProductJsonBtn.disabled = true;
+    const originalText = downloadProductJsonBtn.innerHTML;
+
+    try {
+      const productData = await buildCurrentProductData((msg) => {
+        downloadProductJsonBtn.innerHTML = `<span class="btn-icon">⏳</span> ${msg}`;
+      });
+
+      downloadProductJsonBtn.innerHTML = '<span class="btn-icon">💾</span> Gerando arquivo JSON…';
+
+      const filePayload = {
+        format: 'kicks-store-product',
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        product: productData
+      };
+
+      const safeName = productData.name
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'tenis-kicks';
+
+      const fileName = `kicks-${safeName}.json`;
+      downloadJsonFile(filePayload, fileName);
+
+      showStatus(`🎉 Arquivo "${fileName}" baixado com sucesso! Agora basta arrastá-lo para "Importar Arquivo (.JSON)" no Painel Admin da sua Loja!`, 'success');
+
+    } catch (err) {
+      showStatus(err.message || 'Erro ao gerar o arquivo do produto.', 'error');
+    } finally {
+      downloadProductJsonBtn.disabled = false;
+      downloadProductJsonBtn.innerHTML = originalText;
+    }
+  });
+
+  // ── 6. Copy Product JSON to Clipboard ──────────────────────────────────────
+  copyProductJsonBtn.addEventListener('click', async () => {
+    hideStatus();
+    const originalText = copyProductJsonBtn.innerHTML;
+    copyProductJsonBtn.disabled = true;
+
+    try {
+      const productData = await buildCurrentProductData((msg) => {
+        copyProductJsonBtn.innerHTML = `<span class="btn-icon">⏳</span> ${msg}`;
+      });
+
+      const filePayload = {
+        format: 'kicks-store-product',
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        product: productData
+      };
+
+      await navigator.clipboard.writeText(JSON.stringify(filePayload, null, 2));
+      showStatus('📋 Dados do tênis copiados para a área de transferência!', 'success');
+    } catch (err) {
+      showStatus(err.message || 'Erro ao copiar JSON.', 'error');
+    } finally {
+      copyProductJsonBtn.disabled = false;
+      copyProductJsonBtn.innerHTML = originalText;
+    }
+  });
+
+  // ── 7. Batch Queue Management ──────────────────────────────────────────────
+  addToBatchBtn.addEventListener('click', async () => {
+    hideStatus();
+    addToBatchBtn.disabled = true;
+    const originalText = addToBatchBtn.innerHTML;
+
+    try {
+      const productData = await buildCurrentProductData((msg) => {
+        addToBatchBtn.innerHTML = `<span class="btn-icon">⏳</span> ${msg}`;
+      });
+
+      batchProducts.push({
+        id: globalThis.crypto?.randomUUID?.() || String(Date.now()),
+        addedAt: new Date().toISOString(),
+        ...productData
+      });
+
+      await saveBatch();
+      updateBatchBadges();
+
+      showStatus(`✅ "${productData.name}" adicionado ao lote! Total de ${batchProducts.length} tênis no lote.`, 'success');
+    } catch (err) {
+      showStatus(err.message || 'Erro ao adicionar ao lote.', 'error');
+    } finally {
+      addToBatchBtn.disabled = false;
+      addToBatchBtn.innerHTML = originalText;
+    }
+  });
+
+  function updateBatchBadges() {
+    const count = batchProducts.length;
+    batchCountBadge.textContent = count;
+    batchCountTitle.textContent = count;
+    downloadBatchJsonBtn.disabled = count === 0;
+  }
+
+  function renderBatchView() {
+    updateBatchBadges();
+    batchItemsList.innerHTML = '';
+
+    if (batchProducts.length === 0) {
+      batchItemsList.innerHTML = `
+        <div class="empty-state" style="padding: 24px 12px;">
+          <div class="empty-icon">📦</div>
+          <p class="empty-title">O lote está vazio</p>
+          <p class="empty-desc">Escaneie tênis na aba Extrator e clique em <b>"Salvar no Lote"</b> para acumular vários modelos.</p>
+        </div>
+      `;
+      return;
+    }
+
+    batchProducts.forEach((item, index) => {
+      const card = document.createElement('div');
+      card.className = 'batch-item-card';
+
+      const thumbUrl = item.coverImageUrl || (item.images && item.images[0]?.dataUrl) || (item.images && item.images[0]?.url) || '';
+
+      card.innerHTML = `
+        <div class="batch-item-info">
+          ${thumbUrl ? `<img src="${thumbUrl}" alt="" class="batch-item-thumb" />` : ''}
+          <div>
+            <div class="batch-item-title" title="${item.name}">${item.name}</div>
+            <div class="batch-item-meta">R$ ${Number(item.price).toFixed(2)} • ${item.category} • ${item.images?.length || 0} fotos</div>
+          </div>
+        </div>
+        <button type="button" class="batch-item-remove" title="Remover do lote" data-index="${index}">✕</button>
+      `;
+
+      card.querySelector('.batch-item-remove').addEventListener('click', async (e) => {
+        const idx = parseInt(e.target.getAttribute('data-index'), 10);
+        batchProducts.splice(idx, 1);
+        await saveBatch();
+        renderBatchView();
+      });
+
+      batchItemsList.appendChild(card);
+    });
+  }
+
+  downloadBatchJsonBtn.addEventListener('click', () => {
+    if (batchProducts.length === 0) return;
+
+    const filePayload = {
+      format: 'kicks-store-catalog',
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      count: batchProducts.length,
+      items: batchProducts
+    };
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const fileName = `catalogo-kicks-lote-${dateStr}.json`;
+    downloadJsonFile(filePayload, fileName);
+
+    showStatus(`🎉 Arquivo de lote "${fileName}" com ${batchProducts.length} tênis baixado com sucesso!`, 'success');
+  });
+
+  clearBatchBtn.addEventListener('click', async () => {
+    if (batchProducts.length === 0) return;
+    if (!confirm('Deseja limpar todos os tênis do lote?')) return;
+    batchProducts = [];
+    await saveBatch();
+    renderBatchView();
+  });
+
+  async function loadBatch() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['batchProducts'], (res) => {
+        batchProducts = Array.isArray(res.batchProducts) ? res.batchProducts : [];
+        updateBatchBadges();
+        resolve(batchProducts);
+      });
+    });
+  }
+
+  async function saveBatch() {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ batchProducts }, () => {
+        resolve();
+      });
+    });
+  }
+
+  // ── Helper Download Function ───────────────────────────────────────────────
+  function downloadJsonFile(dataObj, fileName) {
+    const jsonString = JSON.stringify(dataObj, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  // ── 8. Direct API Submission (Optional fallback) ───────────────────────────
+  submitProductBtn.addEventListener('click', async () => {
     submitProductBtn.disabled = true;
-    submitProductBtn.innerHTML = '<span class="btn-icon">⏳</span> Baixando fotos e enviando...';
+    submitProductBtn.innerHTML = '<span class="btn-icon">⏳</span> Enviando para a API...';
     hideStatus();
 
     try {
-      // 1. Authenticate with Admin if needed
+      const productData = await buildCurrentProductData((msg) => {
+        submitProductBtn.innerHTML = `<span class="btn-icon">⏳</span> ${msg}`;
+      });
+
       const token = await getOrFetchAdminToken();
       if (!token) throw new Error('Não foi possível autenticar como Administrador no Kicks Store.');
 
-      // 2. Fetch and convert all selected images to Blobs
-      const imageBlobs = [];
-      for (let i = 0; i < selectedImages.length; i++) {
-        submitProductBtn.innerHTML = `<span class="btn-icon">⏳</span> Baixando foto ${i + 1}/${selectedImages.length}...`;
-        const blob = await fetchImageAsBlob(selectedImages[i].url);
-        if (blob) imageBlobs.push(blob);
-      }
-
-      if (imageBlobs.length === 0) {
-        throw new Error('Não foi possível carregar as imagens selecionadas para envio.');
-      }
-
-      // 3. Build Multipart FormData
-      submitProductBtn.innerHTML = '<span class="btn-icon">⏳</span> Cadastrando tênis no catálogo...';
       const formData = new FormData();
-      
       const productPayload = {
-        name,
-        price,
-        stockQuantity,
-        category,
-        description
+        name: productData.name,
+        price: productData.price,
+        stockQuantity: productData.stockQuantity,
+        category: productData.category,
+        description: productData.description
       };
 
       formData.append('product', new Blob([JSON.stringify(productPayload)], { type: 'application/json' }));
 
-      imageBlobs.forEach((blob, index) => {
-        const ext = blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg';
-        formData.append('images', blob, `shoe-image-${index + 1}.${ext}`);
-      });
+      for (let i = 0; i < productData.images.length; i++) {
+        const img = productData.images[i];
+        let blob;
+        if (img.dataUrl.startsWith('data:')) {
+          const res = await fetch(img.dataUrl);
+          blob = await res.blob();
+        } else {
+          blob = await fetchImageAsBlob(img.url);
+        }
+        if (blob) {
+          const ext = blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg';
+          formData.append('images', blob, `shoe-image-${i + 1}.${ext}`);
+        }
+      }
 
-      // 4. Send POST to Kicks Store API
       const settings = await getSettings();
       const response = await fetch(`${settings.apiUrl}/api/products`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
 
@@ -240,31 +518,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       const created = await response.json();
-      showStatus(`🎉 Sucesso! "${created.name}" cadastrado na Kicks Store (ID #${created.id}) com ${imageBlobs.length} fotos!`, 'success');
-      
-      submitProductBtn.disabled = false;
-      submitProductBtn.innerHTML = '<span class="btn-icon">🚀</span> Enviar para a Kicks Store';
+      showStatus(`🎉 "${created.name}" cadastrado com sucesso na Kicks Store (ID #${created.id})!`, 'success');
 
     } catch (err) {
-      console.error(err);
-      showStatus(err.message || 'Erro ao enviar produto para a loja.', 'error');
+      showStatus(err.message || 'Erro ao enviar para a API da loja.', 'error');
+    } finally {
       submitProductBtn.disabled = false;
-      submitProductBtn.innerHTML = '<span class="btn-icon">🚀</span> Enviar para a Kicks Store';
+      submitProductBtn.innerHTML = '<span class="btn-icon">🚀</span> Enviar Direto para API da Loja';
     }
   });
 
   async function fetchImageAsBlob(url) {
     try {
       const res = await fetch(url);
-      if (!res.ok) throw new Error('Fetch failed');
+      if (!res.ok) return null;
       return await res.blob();
     } catch {
-      // If direct fetch fails (CORS), try converting via canvas or proxy
       return null;
     }
   }
 
-  // ── 5. Admin Authentication & Token Cache ──────────────────────────────────
+  // ── 9. Admin Authentication & Token Cache ──────────────────────────────────
   async function getOrFetchAdminToken() {
     if (adminToken) return adminToken;
 
@@ -287,14 +561,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     return adminToken;
   }
 
-  // ── 6. Settings Actions ────────────────────────────────────────────────────
+  // ── 10. Settings Actions ───────────────────────────────────────────────────
   saveSettingsBtn.addEventListener('click', async () => {
     const apiUrl = apiUrlInput.value.trim().replace(/\/+$/, '');
     const adminEmail = adminEmailInput.value.trim();
     const adminPassword = adminPasswordInput.value.trim();
 
     await chrome.storage.local.set({ apiUrl, adminEmail, adminPassword });
-    adminToken = null; // Clear cached token
+    adminToken = null;
     showSettingsFeedback('Configurações salvas com sucesso!', 'success');
     checkApiConnection();
   });

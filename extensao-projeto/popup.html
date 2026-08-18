@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kicks Store Importer</title>
+  <title>Kicks Store Sneaker Importer</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
         <img src="icons/icon.png" alt="Logo" class="brand-logo">
         <div>
           <h1 class="brand-title">Kicks Store</h1>
-          <span class="brand-subtitle">Sneaker Importer</span>
+          <span class="brand-subtitle">Sneaker Exporter & Importer</span>
         </div>
       </div>
       <div class="header-status">
@@ -25,7 +25,8 @@
 
     <!-- Navigation Tabs -->
     <nav class="app-nav">
-      <button id="tabScanner" class="nav-tab is-active">👟 Importador</button>
+      <button id="tabScanner" class="nav-tab is-active">👟 Extrator</button>
+      <button id="tabBatch" class="nav-tab">📦 Lote (<span id="batchCountBadge">0</span>)</button>
       <button id="tabSettings" class="nav-tab">⚙️ Conexão API</button>
     </nav>
 
@@ -48,6 +49,12 @@
         <!-- Product Preview Form (Revealed after scan or manual entry) -->
         <div id="productForm" class="product-form is-hidden">
           
+          <!-- Quick Instructions Tip -->
+          <div class="tip-card">
+            <span class="tip-icon">💡</span>
+            <span>Ao clicar em <b>Baixar Arquivo (.JSON)</b>, você pode arrastar o arquivo direto para o <b>Painel Admin da Loja</b>!</span>
+          </div>
+
           <!-- Image Gallery Selector -->
           <div class="form-section">
             <div class="section-header">
@@ -91,10 +98,26 @@
             <textarea id="productDescription" class="form-textarea" rows="3" maxlength="2000" placeholder="Detalhes de amortecimento, tração e estilo..."></textarea>
           </div>
 
-          <!-- Action Submit Button -->
-          <div class="form-actions">
-            <button type="button" id="submitProductBtn" class="btn btn-primary">
-              <span class="btn-icon">🚀</span> Enviar para a Kicks Store
+          <!-- Actions Buttons -->
+          <div class="form-actions space-y-2">
+            <!-- Primary Action: Download JSON file for Store Import -->
+            <button type="button" id="downloadProductJsonBtn" class="btn btn-primary">
+              <span class="btn-icon">💾</span> Baixar Arquivo do Tênis (.JSON)
+            </button>
+
+            <!-- Secondary Actions -->
+            <div class="form-row">
+              <button type="button" id="addToBatchBtn" class="btn btn-secondary flex-1" title="Adicionar à lista de exportação em lote">
+                <span class="btn-icon">➕</span> Salvar no Lote
+              </button>
+              <button type="button" id="copyProductJsonBtn" class="btn btn-secondary flex-1" title="Copiar código JSON para a área de transferência">
+                <span class="btn-icon">📋</span> Copiar JSON
+              </button>
+            </div>
+
+            <!-- Optional Direct API Send -->
+            <button type="button" id="submitProductBtn" class="btn btn-outline" title="Enviar diretamente via API se o backend estiver rodando">
+              <span class="btn-icon">🚀</span> Enviar Direto para API da Loja
             </button>
           </div>
 
@@ -109,11 +132,34 @@
 
       </section>
 
+      <!-- BATCH EXPORT TAB -->
+      <section id="batchView" class="tab-view">
+        <div class="settings-card">
+          <div class="section-header">
+            <div>
+              <h2 class="settings-title">Lote de Tênis (<span id="batchCountTitle">0</span>)</h2>
+              <p class="settings-desc">Acumule vários modelos e baixe um único arquivo para importar todos de uma vez.</p>
+            </div>
+            <button type="button" id="clearBatchBtn" class="text-link text-danger">Limpar Tudo</button>
+          </div>
+
+          <div id="batchItemsList" class="batch-items-list">
+            <!-- Populated via JS -->
+          </div>
+
+          <div class="batch-actions mt-3">
+            <button type="button" id="downloadBatchJsonBtn" class="btn btn-primary" disabled>
+              <span class="btn-icon">📦</span> Baixar Arquivo do Lote (.JSON)
+            </button>
+          </div>
+        </div>
+      </section>
+
       <!-- SETTINGS TAB -->
       <section id="settingsView" class="tab-view">
         <div class="settings-card">
-          <h2 class="settings-title">Configurações de Conexão</h2>
-          <p class="settings-desc">Conecte a extensão ao backend da sua loja Kicks Store.</p>
+          <h2 class="settings-title">Configurações de Conexão API</h2>
+          <p class="settings-desc">Opcional: use caso prefira envio direto por API em vez de arquivo JSON.</p>
 
           <div class="form-group">
             <label for="apiUrl" class="form-label">URL da API (Back-end)</label>
@@ -148,7 +194,7 @@
 
     <!-- Footer -->
     <footer class="app-footer">
-      <span>Kicks Store Brasil • v1.0.0</span>
+      <span>Kicks Store Brasil • v1.1.0</span>
       <a href="http://localhost:5173" id="openStoreLink" target="_blank" class="footer-link">Abrir Vitrine ↗</a>
     </footer>
   </div>

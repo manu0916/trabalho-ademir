@@ -3,7 +3,15 @@ import { IMAGE_FILE_ACCEPT, prepareImageUpload, releaseImagePreviewUrls } from '
 
 const MAX_PRODUCT_IMAGES = 8;
 
-export default function ProductImagePicker({ images, onChange, disabled, onBusyChange }) {
+export default function ProductImagePicker({
+  images: propImages,
+  entries: propEntries,
+  onChange,
+  disabled,
+  onBusyChange,
+  onPreparingChange
+}) {
+  const images = propImages || propEntries || [];
   const [isPreparing, setIsPreparing] = useState(false);
   const [preparingLabel, setPreparingLabel] = useState('');
   const [selectionError, setSelectionError] = useState('');
@@ -14,12 +22,15 @@ export default function ProductImagePicker({ images, onChange, disabled, onBusyC
 
   useEffect(() => () => {
     isMountedRef.current = false;
-    releaseImagePreviewUrls(latestImagesRef.current);
+    if (Array.isArray(latestImagesRef.current)) {
+      releaseImagePreviewUrls(latestImagesRef.current);
+    }
   }, []);
 
   const setBusy = (busy) => {
     setIsPreparing(busy);
     onBusyChange?.(busy);
+    onPreparingChange?.(busy);
   };
 
   const handleFiles = async (event) => {
@@ -52,6 +63,8 @@ export default function ProductImagePicker({ images, onChange, disabled, onBusyC
         }
         preparedImages.push({
           id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${index}-${file.name}`,
+          key: `new-${Date.now()}-${index}`,
+          kind: 'new',
           file,
           originalName: sourceFile.name,
           previewUrl: URL.createObjectURL(file),
@@ -71,10 +84,10 @@ export default function ProductImagePicker({ images, onChange, disabled, onBusyC
     }
   };
 
-  const removeImage = (imageId) => {
-    const removed = images.find((image) => image.id === imageId);
-    if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
-    onChange(images.filter((image) => image.id !== imageId));
+  const removeImage = (targetId) => {
+    const removed = images.find((image) => (image.id === targetId || image.key === targetId));
+    if (removed?.previewUrl && removed.kind === 'new') URL.revokeObjectURL(removed.previewUrl);
+    onChange(images.filter((image) => (image.id !== targetId && image.key !== targetId)));
     setSelectionError('');
   };
 
@@ -116,20 +129,25 @@ export default function ProductImagePicker({ images, onChange, disabled, onBusyC
       ) : (
         <>
           <div className="product-gallery-grid">
-            {images.map((image, index) => (
-              <article className="product-gallery-item" key={image.id}>
-                <div className="product-gallery-preview">
-                  <img src={image.previewUrl} alt={`Prévia ${index + 1}: ${image.originalName}`} />
-                  <span>{index === 0 ? 'Capa' : `Foto ${index + 1}`}</span>
-                </div>
-                <p title={image.originalName}>{image.originalName}</p>
-                <div className="product-gallery-actions">
-                  <button type="button" disabled={isDisabled || index === 0} onClick={() => moveImage(index, -1)} aria-label={`Mover ${image.originalName} para antes`}>←</button>
-                  <button type="button" disabled={isDisabled || index === images.length - 1} onClick={() => moveImage(index, 1)} aria-label={`Mover ${image.originalName} para depois`}>→</button>
-                  <button type="button" disabled={isDisabled} onClick={() => removeImage(image.id)} className="is-danger" aria-label={`Remover ${image.originalName}`}>Remover</button>
-                </div>
-              </article>
-            ))}
+            {images.map((image, index) => {
+              const imageKey = image.id || image.key || index;
+              const preview = image.previewUrl || image.imageUrl;
+              const label = image.originalName || image.altText || `Foto ${index + 1}`;
+              return (
+                <article className="product-gallery-item" key={imageKey}>
+                  <div className="product-gallery-preview">
+                    <img src={preview} alt={`Prévia ${index + 1}: ${label}`} />
+                    <span>{index === 0 ? 'Capa' : `Foto ${index + 1}`}</span>
+                  </div>
+                  <p title={label}>{label}</p>
+                  <div className="product-gallery-actions">
+                    <button type="button" disabled={isDisabled || index === 0} onClick={() => moveImage(index, -1)} aria-label={`Mover ${label} para antes`}>←</button>
+                    <button type="button" disabled={isDisabled || index === images.length - 1} onClick={() => moveImage(index, 1)} aria-label={`Mover ${label} para depois`}>→</button>
+                    <button type="button" disabled={isDisabled} onClick={() => removeImage(imageKey)} className="is-danger" aria-label={`Remover ${label}`}>Remover</button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
           <button type="button" className="product-gallery-add" disabled={isDisabled || images.length >= MAX_PRODUCT_IMAGES} onClick={() => inputRef.current?.click()}>
             {isPreparing ? 'Otimizando fotos…' : '＋ Adicionar mais fotos'}
