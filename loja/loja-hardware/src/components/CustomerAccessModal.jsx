@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { loginCustomer, registerCustomer } from '../services/api';
 import useModalAccessibility from '../hooks/useModalAccessibility';
+import KicksSun from './ui/KicksSun';
 
 export default function CustomerAccessModal({
   isOpen,
@@ -74,7 +75,7 @@ export default function CustomerAccessModal({
           <button type="button" onClick={requestClose} disabled={isSubmitting} className="close-checkout absolute right-4 top-4 z-10 text-2xl disabled:cursor-wait disabled:opacity-40" aria-label={checkoutRequired ? 'Fechar e voltar para a sacola' : 'Fechar acesso à conta'}>×</button>
         )}
         <div className="mb-4 flex items-center justify-center">
-          <img src="/kicks-store-logo.jpg" alt="Kicks Store" className="h-16 w-16 rounded-2xl object-contain shadow-lg border border-[var(--line)] bg-[var(--surface-solid)]" />
+          <span className="customer-brand-sun"><KicksSun label="Kicks Store" /></span>
         </div>
         <p className={`section-kicker ${onClose ? 'pr-12' : ''}`}>{checkoutRequired ? 'Sua sacola está pronta' : `Olá, você está na ${storeName}`}</p>
         <h2 id="customer-access-title" className="mt-2 text-3xl font-extrabold text-[var(--text)]">

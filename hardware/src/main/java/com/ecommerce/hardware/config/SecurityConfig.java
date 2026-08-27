@@ -48,10 +48,16 @@ public class SecurityConfig {
                         // Spring Security's SPA support accepts the raw value sent from the XSRF cookie.
                         .spa()
                         .csrfTokenRepository(csrfTokenRepository)
-                        // Product and order admin writes authenticate with a signed Bearer token and therefore do
-                        // not rely on a browser CSRF cookie crossing the Vercel rewrite.
-                        .ignoringRequestMatchers("/api/payments/stripe/webhook", "/api/products/**",
-                                "/api/storefront/hero/**", "/api/admin/orders/**"))
+                        // Bearer-authenticated admin writes do not rely on an ambient browser credential,
+                        // so CSRF is unnecessary for their narrowly matched mutation endpoints.
+                        // Anonymous support/stock submissions also carry no authenticated user state.
+                        // The extension token exchange is stateless and authenticates explicit credentials;
+                        // the cookie/session-based web login remains CSRF protected.
+                        .ignoringRequestMatchers("/api/payments/stripe/webhook", "/api/admin/auth/token",
+                                "/api/products/**",
+                                "/api/storefront/hero/**", "/api/storefront/footer/**", "/api/admin/orders/**")
+                        .ignoringRequestMatchers(SecurityConfig::isPublicSubmission,
+                                SecurityConfig::isAdminBearerMutation))
                 .securityContext(context -> context
                         .securityContextRepository(securityContextRepository)
                         .requireExplicitSave(true))
@@ -98,6 +104,7 @@ public class SecurityConfig {
                         // The hero and its image bytes are public reads. Its mutating methods are
                         // rejected by AdminBearerAuthenticationFilter before MVC parses a body.
                         .requestMatchers(SecurityConfig::isStorefrontHeroEndpoint).permitAll()
+                        .requestMatchers(SecurityConfig::isStorefrontFooterEndpoint).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/payments/methods").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/admin/auth/csrf").permitAll()
@@ -105,12 +112,15 @@ public class SecurityConfig {
                         // an expected 401. The controller only issues a token to ROLE_ADMIN.
                         .requestMatchers(HttpMethod.GET, "/api/admin/auth/session").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/admin/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/admin/auth/token").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/payments/stripe/webhook").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/reviews/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/support/messages").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/coupons/validate").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/stock-alerts").permitAll()
                         .requestMatchers("/api/customer/**").permitAll()
+                        .requestMatchers(SecurityConfig::isAdminBearerMutation)
+                                .hasAuthority("ROLE_ADMIN_BEARER")
                         .requestMatchers(HttpMethod.POST, "/api/admin/orders/**")
                                 .hasAuthority("ROLE_ADMIN_BEARER")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
@@ -178,6 +188,31 @@ public class SecurityConfig {
     private static boolean isStorefrontHeroEndpoint(HttpServletRequest request) {
         String path = request.getRequestURI();
         return "/api/storefront/hero".equals(path) || path.startsWith("/api/storefront/hero/");
+    }
+
+    private static boolean isStorefrontFooterEndpoint(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/api/storefront/footer".equals(path) || path.startsWith("/api/storefront/footer/");
+    }
+
+    private static boolean isPublicSubmission(HttpServletRequest request) {
+        if (!"POST".equalsIgnoreCase(request.getMethod())) return false;
+        String path = request.getRequestURI();
+        return "/api/support/messages".equals(path) || "/api/stock-alerts".equals(path);
+    }
+
+    private static boolean isAdminBearerMutation(HttpServletRequest request) {
+        String method = request.getMethod();
+        String path = request.getRequestURI();
+        if ("POST".equalsIgnoreCase(method)) {
+            return "/api/admin/coupons".equals(path);
+        }
+        if ("PATCH".equalsIgnoreCase(method)) {
+            return path.startsWith("/api/admin/coupons/")
+                    || path.startsWith("/api/admin/support/messages/")
+                    || path.startsWith("/api/admin/stock-alerts/");
+        }
+        return "DELETE".equalsIgnoreCase(method) && path.startsWith("/api/admin/coupons/");
     }
 
 }

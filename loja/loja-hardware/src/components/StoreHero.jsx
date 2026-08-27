@@ -1,226 +1,285 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { ArrowRight, ChevronLeft, ChevronRight, Pause, Play, ShoppingBag, Sparkles } from 'lucide-react';
+import happyHeroAsset from '../assets/brand/kicks-happy-hero.webp';
 import { getProductImages } from '../utils/productImages';
+import '../styles/home.css';
 
-const HERO_MOTIF = ['↗', '⌁', '✦'];
+const currencyFormatter = new Intl.NumberFormat('pt-BR', {
+  style: 'currency',
+  currency: 'BRL',
+});
 
-export default function StoreHero({ theme, products = [], heroSettings, onExplore }) {
-  const prefersReducedMotion = useReducedMotion();
+function isUsableImageUrl(value) {
+  const url = String(value || '').trim();
+  return Boolean(url) && (/^https:\/\//i.test(url) || /^\/(?!\/)/.test(url) || /^data:image\//i.test(url));
+}
+
+function isProductInStock(product) {
+  const stockQuantity = Number(product?.stockQuantity);
+  return Number.isFinite(stockQuantity) && stockQuantity > 0;
+}
+
+function normalizeHeroSettings(settings) {
+  const intervalSeconds = Number(settings?.intervalSeconds);
+  return {
+    mode: settings?.mode === 'MANUAL' ? 'MANUAL' : 'PRODUCTS',
+    intervalSeconds: Number.isInteger(intervalSeconds) && intervalSeconds >= 3 && intervalSeconds <= 30
+      ? intervalSeconds
+      : 6,
+    manualImages: Array.isArray(settings?.manualImages) ? settings.manualImages : [],
+  };
+}
+
+function createManualSlides(manualImages, failedImageUrls) {
+  return manualImages
+    .filter((image) => image && isUsableImageUrl(image.imageUrl))
+    .map((image, index) => ({
+      kind: 'manual',
+      key: `manual-${image.id ?? index}`,
+      imageUrl: failedImageUrls.has(image.imageUrl) ? happyHeroAsset : image.imageUrl.trim(),
+      sourceImageUrl: image.imageUrl.trim(),
+      altText: String(image.altText || '').trim() || 'Campanha editorial da Kicks Store',
+      sortOrder: Number.isInteger(image.sortOrder) ? image.sortOrder : index,
+      isFallbackImage: failedImageUrls.has(image.imageUrl),
+    }))
+    .sort((left, right) => left.sortOrder - right.sortOrder);
+}
+
+function createProductSlides(products, failedImageUrls) {
+  return products
+    .filter(isProductInStock)
+    .map((product, index) => {
+      const image = getProductImages(product).find((candidate) => (
+        isUsableImageUrl(candidate.imageUrl) && !failedImageUrls.has(candidate.imageUrl)
+      ));
+      return image ? {
+        kind: 'product',
+        key: `product-${product.id ?? index}`,
+        imageUrl: image.imageUrl,
+        sourceImageUrl: image.imageUrl,
+        altText: image.altText || String(product.name || 'Produto do catálogo'),
+        product,
+      } : null;
+    })
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+export default function StoreHero({
+  products = [],
+  heroSettings,
+  onExplore,
+  onOpenProduct,
+  onAddToCart,
+}) {
+  const settings = useMemo(() => normalizeHeroSettings(heroSettings), [heroSettings]);
+  const [shouldReduceMotion, setShouldReduceMotion] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [failedSlideKeys, setFailedSlideKeys] = useState([]);
-  const [isInteractionPaused, setIsInteractionPaused] = useState(false);
   const [isUserPaused, setIsUserPaused] = useState(false);
-  const [slideAnnouncement, setSlideAnnouncement] = useState('');
-  const [isDocumentVisible, setIsDocumentVisible] = useState(() => document.visibilityState === 'visible');
-  const mode = heroSettings?.mode === 'MANUAL' ? 'MANUAL' : 'PRODUCTS';
+  const [isInteractionPaused, setIsInteractionPaused] = useState(false);
+  const [isDocumentHidden, setIsDocumentHidden] = useState(false);
+  const [failedProductImageUrls, setFailedProductImageUrls] = useState(() => new Set());
+  const [failedManualImageUrls, setFailedManualImageUrls] = useState(() => new Set());
 
-  const manualSlides = useMemo(() => (heroSettings?.manualImages || []).map((image) => ({
-    key: `manual-${image.id}`,
-    src: image.imageUrl,
-    alt: image.altText || 'Tênis em destaque na Kicks Store',
-  })), [heroSettings?.manualImages]);
-
-  const productSlides = useMemo(() => {
-    const seenUrls = new Set();
-    const productGalleries = products
-      .filter((product) => product.stockQuantity > 0)
-      .map((product) => ({ product, images: getProductImages(product) }))
-      .filter((entry) => entry.images.length > 0);
-    const slides = [];
-    const greatestGallerySize = Math.max(0, ...productGalleries.map((entry) => entry.images.length));
-
-    // Interleave each product's first photo, then each second photo, so one
-    // product with a large gallery never dominates the automatic showcase.
-    for (let imageIndex = 0; imageIndex < greatestGallerySize && slides.length < 12; imageIndex++) {
-      for (const { product, images } of productGalleries) {
-        const image = images[imageIndex];
-        if (!image || seenUrls.has(image.imageUrl)) continue;
-        seenUrls.add(image.imageUrl);
-        slides.push({
-          key: `product-${product.id}-${image.key}`,
-          src: image.imageUrl,
-          alt: image.altText || (images.length > 1
-            ? `${product.name || 'Tênis disponível na Kicks Store'}, foto ${imageIndex + 1}`
-            : product.name || 'Tênis disponível na Kicks Store'),
-        });
-        if (slides.length >= 12) break;
-      }
-    }
-    return slides;
-  }, [products]);
-
-  const { slides, sourceKind } = useMemo(() => {
-    const availableManual = manualSlides.filter((slide) => !failedSlideKeys.includes(slide.key));
-    const availableProducts = productSlides.filter((slide) => !failedSlideKeys.includes(slide.key));
-    if (mode === 'MANUAL' && availableManual.length > 0) return { slides: availableManual, sourceKind: 'manual' };
-    if (mode === 'PRODUCTS' && availableProducts.length > 0) return { slides: availableProducts, sourceKind: 'products' };
-    return {
-      sourceKind: 'default',
-      slides: [{ key: 'default-hero', src: theme.image, alt: theme.imageAlt }],
-    };
-  }, [failedSlideKeys, manualSlides, mode, productSlides, theme.image, theme.imageAlt]);
-
-  const slideSignature = slides.map((slide) => slide.key).join('|');
-  const normalizedActiveIndex = activeIndex % slides.length;
-  const activeSlide = slides[normalizedActiveIndex];
-  const hasMultipleSlides = slides.length > 1;
-  const shouldAutoPlay = sourceKind === 'products'
-    && hasMultipleSlides
-    && !prefersReducedMotion
-    && !isInteractionPaused
-    && !isUserPaused
-    && isDocumentVisible;
+  const productSlides = useMemo(
+    () => createProductSlides(Array.isArray(products) ? products : [], failedProductImageUrls),
+    [failedProductImageUrls, products],
+  );
+  const manualSlides = useMemo(
+    () => createManualSlides(settings.manualImages, failedManualImageUrls),
+    [failedManualImageUrls, settings.manualImages],
+  );
+  const configuredSlides = settings.mode === 'MANUAL' ? manualSlides : productSlides;
+  const slides = configuredSlides.length > 0 ? configuredSlides : [{
+    kind: 'fallback',
+    key: `${settings.mode.toLowerCase()}-fallback`,
+    imageUrl: happyHeroAsset,
+    altText: 'Tênis colorido em composição editorial da Kicks Store',
+  }];
+  const currentSlide = slides[activeIndex % slides.length];
+  const currentProduct = currentSlide.kind === 'product' ? currentSlide.product : null;
+  const isPaused = shouldReduceMotion || isUserPaused || isInteractionPaused || isDocumentHidden;
 
   useEffect(() => {
-    setActiveIndex(0);
-    setIsUserPaused(false);
-    setSlideAnnouncement('');
-  }, [mode, slideSignature]);
-
-  useEffect(() => {
-    const handleVisibilityChange = () => setIsDocumentVisible(document.visibilityState === 'visible');
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updateMotionPreference = () => setShouldReduceMotion(mediaQuery.matches);
+    updateMotionPreference();
+    mediaQuery.addEventListener?.('change', updateMotionPreference);
+    return () => mediaQuery.removeEventListener?.('change', updateMotionPreference);
   }, []);
 
   useEffect(() => {
-    if (!shouldAutoPlay) return undefined;
-    const intervalSeconds = Math.min(30, Math.max(3, Number(heroSettings?.intervalSeconds) || 5));
-    const timer = window.setInterval(() => setActiveIndex((current) => (current + 1) % slides.length), intervalSeconds * 1000);
-    return () => window.clearInterval(timer);
-  }, [activeIndex, heroSettings?.intervalSeconds, shouldAutoPlay, slides.length]);
+    const updateVisibility = () => setIsDocumentHidden(document.hidden);
+    updateVisibility();
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, []);
 
-  const selectSlide = (index) => {
-    setActiveIndex(index);
-    setSlideAnnouncement(`Foto ${index + 1} de ${slides.length}: ${slides[index].alt}`);
+  useEffect(() => {
+    setActiveIndex((current) => Math.min(current, Math.max(0, slides.length - 1)));
+  }, [settings.mode, slides.length]);
+
+  useEffect(() => {
+    if (isPaused || slides.length < 2) return undefined;
+    const timer = window.setInterval(() => {
+      setActiveIndex((current) => (current + 1) % slides.length);
+    }, settings.intervalSeconds * 1000);
+    return () => window.clearInterval(timer);
+  }, [isPaused, settings.intervalSeconds, slides.length]);
+
+  const showPrevious = () => {
+    setActiveIndex((current) => (current - 1 + slides.length) % slides.length);
   };
-  const showPrevious = () => selectSlide((normalizedActiveIndex - 1 + slides.length) % slides.length);
-  const showNext = () => selectSlide((normalizedActiveIndex + 1) % slides.length);
+
+  const showNext = () => {
+    setActiveIndex((current) => (current + 1) % slides.length);
+  };
+
   const handleImageError = () => {
-    if (activeSlide.key === 'default-hero') return;
-    setFailedSlideKeys((current) => current.includes(activeSlide.key) ? current : [...current, activeSlide.key]);
+    if (currentSlide.kind === 'product') {
+      setFailedProductImageUrls((current) => new Set(current).add(currentSlide.sourceImageUrl));
+      return;
+    }
+    if (currentSlide.kind === 'manual' && !currentSlide.isFallbackImage) {
+      setFailedManualImageUrls((current) => new Set(current).add(currentSlide.sourceImageUrl));
+    }
   };
+
+  const hasCurrentPrice = currentProduct?.price !== null
+    && currentProduct?.price !== undefined
+    && String(currentProduct.price).trim() !== '';
+  const numericPrice = hasCurrentPrice ? Number(currentProduct.price) : Number.NaN;
 
   return (
-    <section className="hero-section overflow-hidden">
-      <div className="hero-texture" aria-hidden="true" />
-      <div className="hero-orb hero-orb-one" aria-hidden="true" />
-      <div className="hero-orb hero-orb-two" aria-hidden="true" />
-      <div className="hero-doodles" aria-hidden="true">
-        {HERO_MOTIF.map((mark, index) => <span key={`${mark}-${index}`} className={`hero-doodle hero-doodle-${index + 1}`}>{mark}</span>)}
-      </div>
+    <section
+      className="happy-hero"
+      aria-labelledby="happy-hero-title"
+      onMouseEnter={() => setIsInteractionPaused(true)}
+      onMouseLeave={() => setIsInteractionPaused(false)}
+      onFocusCapture={() => setIsInteractionPaused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setIsInteractionPaused(false);
+      }}
+    >
+      <div className="happy-hero__orb happy-hero__orb--sun" aria-hidden="true" />
+      <div className="happy-hero__orb happy-hero__orb--sky" aria-hidden="true" />
+      <div className="happy-hero__spark happy-hero__spark--one" aria-hidden="true" />
+      <div className="happy-hero__spark happy-hero__spark--two" aria-hidden="true" />
 
-      <div className="hero-rail" aria-hidden="true">
-        <span>{theme.edition}</span>
-        <i />
-        <span>{theme.rail}</span>
-      </div>
+      <div className="happy-hero__inner">
+        <div className="happy-hero__copy">
+          <p className="happy-hero__eyebrow">
+            <Sparkles aria-hidden="true" />
+            Kicks Store · alegria em movimento
+          </p>
+          <h1 id="happy-hero-title">Calce a felicidade.</h1>
+          <p className="happy-hero__lead">
+            Sneakers para acompanhar o seu ritmo, sua personalidade e os dias que pedem um pouco mais de cor.
+          </p>
 
-      <div className="hero-layout mx-auto grid max-w-[90rem] items-center gap-12 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-12 lg:gap-8 lg:py-24">
-        <motion.div
-          key={`${theme.id}-copy`}
-          initial={{ opacity: 0, y: 22 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.68, ease: [0.22, 1, 0.36, 1] }}
-          className="hero-copy relative z-10 lg:col-span-7"
-        >
-          <p className="hero-eyebrow">{theme.eyebrow}</p>
-          <h1 className="hero-title">
-            <span>{theme.titleLead}</span>
-            <em>{theme.titleAccent}</em>
-          </h1>
-          <p className="hero-description mt-6 max-w-xl text-base leading-7 sm:text-lg">{theme.description}</p>
-          <div className="mt-9 flex flex-wrap items-center gap-4">
-            <button type="button" onClick={onExplore} className="hero-cta">
-              {theme.cta}
-              <span aria-hidden="true" className="hero-cta-arrow">→</span>
-            </button>
-            <span className="hero-stat"><span className="hero-stat-dot" />{theme.stat}</span>
+          <div className="happy-hero__actions">
+            {onExplore && (
+              <button type="button" className="happy-button happy-button--primary" onClick={onExplore}>
+                Explorar coleção
+                <ArrowRight aria-hidden="true" />
+              </button>
+            )}
+            {currentProduct && onOpenProduct && (
+              <button
+                type="button"
+                className="happy-button happy-button--secondary"
+                onClick={() => onOpenProduct(currentProduct)}
+              >
+                Ver este par
+              </button>
+            )}
           </div>
-          <div className="mt-10 flex flex-wrap gap-2.5">
-            {theme.chips.map((chip) => <span className="hero-chip" key={chip}>{chip}</span>)}
-          </div>
-        </motion.div>
 
-        <motion.div
-          key={`${theme.id}-image`}
-          initial={{ opacity: 0, scale: 0.96, rotate: -1.5 }}
-          animate={{ opacity: 1, scale: 1, rotate: 0 }}
-          transition={{ duration: 0.82, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
-          className="hero-image-wrap lg:col-span-5"
-          role="region"
-          aria-roledescription="carrossel"
-          aria-label="Fotos em destaque da Kicks Store"
-          onMouseEnter={() => setIsInteractionPaused(true)}
-          onMouseLeave={() => setIsInteractionPaused(false)}
-          onFocusCapture={() => setIsInteractionPaused(true)}
-          onBlurCapture={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget)) setIsInteractionPaused(false);
-          }}
-        >
-          <div className="hero-image-halo" aria-hidden="true" />
-          <div className="hero-image-shape" aria-hidden="true" />
-          <div className="hero-image-frame">
-            <AnimatePresence initial={false}>
-              <motion.img
-                key={activeSlide.key}
-                src={activeSlide.src}
-                alt={activeSlide.alt}
-                className="hero-image hero-carousel-image"
-                width="1400"
-                height="1050"
-                decoding="async"
-                fetchPriority={normalizedActiveIndex === 0 ? 'high' : 'auto'}
-                onError={handleImageError}
-                initial={prefersReducedMotion ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={prefersReducedMotion ? undefined : { opacity: 0 }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.5 }}
-              />
-            </AnimatePresence>
+          <div className="happy-hero__notes" aria-label="Sobre esta seleção">
+            <span>Catálogo real</span>
+            <span>Curadoria editorial</span>
+            <span>Experiência leve</span>
           </div>
-          {hasMultipleSlides && (
-            <>
-              <button type="button" onClick={showPrevious} className="hero-carousel-arrow is-previous" aria-label="Mostrar foto anterior">←</button>
-              <button type="button" onClick={showNext} className="hero-carousel-arrow is-next" aria-label="Mostrar próxima foto">→</button>
-              <div className="hero-carousel-toolbar">
-                <div className="hero-carousel-dots" aria-label="Escolher foto">
-                  {slides.map((slide, index) => (
-                    <button
-                      key={slide.key}
-                      type="button"
-                      onClick={() => selectSlide(index)}
-                      className={`hero-carousel-dot ${index === normalizedActiveIndex ? 'is-active' : ''}`}
-                      aria-label={`Mostrar foto ${index + 1} de ${slides.length}`}
-                      aria-current={index === normalizedActiveIndex ? 'true' : undefined}
-                    />
-                  ))}
-                </div>
-                {sourceKind === 'products' && !prefersReducedMotion && (
-                  <button type="button" onClick={() => setIsUserPaused((current) => !current)} className="hero-carousel-toggle" aria-label={isUserPaused ? 'Retomar troca automática' : 'Pausar troca automática'}>{isUserPaused ? '▶' : 'Ⅱ'}</button>
-                )}
+        </div>
+
+        <div className="happy-hero__stage">
+          <div className="happy-hero__sun-mark" aria-hidden="true">
+            <span />
+          </div>
+          <img className="happy-hero__campaign-art" src={happyHeroAsset} alt="" aria-hidden="true" />
+
+          <div className="happy-hero__visual" aria-live={isPaused ? 'polite' : 'off'}>
+            <img
+              key={currentSlide.key}
+              className={`happy-hero__main-image ${currentSlide.kind === 'fallback' || currentSlide.isFallbackImage ? 'happy-hero__main-image--campaign' : ''}`.trim()}
+              src={currentSlide.kind === 'fallback' ? happyHeroAsset : currentSlide.imageUrl}
+              alt={currentSlide.altText}
+              onError={currentSlide.kind === 'fallback' ? undefined : handleImageError}
+              fetchPriority="high"
+            />
+          </div>
+
+          <div className="happy-hero__feature-card">
+            <p className="happy-hero__feature-label">
+              {currentProduct ? 'Da vitrine agora' : settings.mode === 'MANUAL' ? 'Campanha Kicks' : 'Universo Kicks'}
+            </p>
+            <h2>{currentProduct?.name || 'Seu próximo favorito começa por aqui.'}</h2>
+            {currentProduct ? (
+              <div className="happy-hero__feature-meta">
+                {currentProduct.category && <span>{currentProduct.category}</span>}
+                {Number.isFinite(numericPrice) && <strong>{currencyFormatter.format(numericPrice)}</strong>}
               </div>
-            </>
-          )}
-          <span className="sr-only" aria-live="polite">{slideAnnouncement}</span>
-          <div className="hero-sticker"><span>{theme.stickerLabel}</span></div>
-          <div className="hero-card">
-            <div className="hero-card-topline"><span className="hero-card-mark" aria-hidden="true">{HERO_MOTIF[0]}</span><small>{theme.edition}</small></div>
-            <strong>{theme.heroNote}</strong>
-            <p>{theme.heroDetail}</p>
-          </div>
-          <span className="hero-figure-index" aria-hidden="true">{String(normalizedActiveIndex + 1).padStart(2, '0')}—{String(slides.length).padStart(2, '0')}</span>
-        </motion.div>
-      </div>
+            ) : (
+              <p className="happy-hero__feature-description">
+                {configuredSlides.length > 0
+                  ? 'Uma composição visual escolhida para a campanha atual.'
+                  : 'A seleção da vitrine está sendo preparada.'}
+              </p>
+            )}
 
-      <div className="hero-proof-shell mx-auto max-w-7xl px-5 sm:px-8">
-        <div className="hero-proof-band">
-          {theme.proofs.map((proof) => (
-            <div className="hero-proof" key={proof.label}>
-              <span aria-hidden="true">{proof.mark}</span>
-              <div><strong>{proof.label}</strong><small>{proof.detail}</small></div>
+            {currentProduct && onAddToCart && (
+              <button
+                type="button"
+                className="happy-hero__quick-add"
+                onClick={() => onAddToCart(currentProduct)}
+              >
+                <ShoppingBag aria-hidden="true" />
+                Adicionar à sacola
+              </button>
+            )}
+          </div>
+
+          {slides.length > 1 && (
+            <div className="happy-hero__carousel-controls" aria-label="Controles do destaque">
+              <button type="button" onClick={showPrevious} aria-label="Destaque anterior">
+                <ChevronLeft aria-hidden="true" />
+              </button>
+              <div className="happy-hero__dots" role="group" aria-label="Escolher destaque">
+                {slides.map((slide, index) => (
+                  <button
+                    key={slide.key}
+                    type="button"
+                    className={index === activeIndex % slides.length ? 'is-active' : ''}
+                    onClick={() => setActiveIndex(index)}
+                    aria-label={`Mostrar destaque ${index + 1} de ${slides.length}`}
+                    aria-pressed={index === activeIndex % slides.length}
+                  />
+                ))}
+              </div>
+              <button type="button" onClick={showNext} aria-label="Próximo destaque">
+                <ChevronRight aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="happy-hero__pause"
+                onClick={() => setIsUserPaused((paused) => !paused)}
+                aria-label={isUserPaused ? 'Retomar troca automática dos destaques' : 'Pausar troca automática dos destaques'}
+                aria-pressed={isUserPaused}
+              >
+                {isUserPaused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
+              </button>
             </div>
-          ))}
+          )}
         </div>
       </div>
     </section>

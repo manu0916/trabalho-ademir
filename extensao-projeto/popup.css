@@ -357,6 +357,104 @@ body {
   margin-bottom: 4px;
 }
 
+.color-variants-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+  padding: 4px;
+  margin-bottom: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.color-variant-card {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  color: var(--text-main);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s, opacity 0.2s, transform 0.2s;
+}
+
+.color-variant-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.color-variant-card:not(.is-selected) {
+  opacity: 0.48;
+}
+
+.color-variant-swatch {
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 15px;
+}
+
+.color-variant-swatch img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.color-variant-copy {
+  min-width: 0;
+}
+
+.color-variant-name,
+.color-variant-source {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.color-variant-name {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.color-variant-source {
+  margin-top: 1px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.color-variant-check {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.color-variant-card:not(.is-selected) .color-variant-check {
+  color: transparent;
+  background: transparent;
+}
+
 .image-card {
   position: relative;
   aspect-ratio: 1;

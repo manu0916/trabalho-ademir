@@ -1,3 +1,5 @@
+import { isWebpBlob, MAX_IMAGE_UPLOAD_BYTES } from '../utils/imagePreparation';
+
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 
 // In production Vercel proxies /api to Render. Keeping browser requests
@@ -21,6 +23,16 @@ function sessionExpiredError() {
   const error = new Error('Sua sess\u00e3o administrativa expirou. Entre novamente para continuar.');
   error.status = 401;
   return error;
+}
+
+function sessionTemporarilyUnavailableError() {
+  const error = new Error('O servidor da loja est\u00e1 iniciando. Aguarde alguns segundos.');
+  error.status = 503;
+  return error;
+}
+
+function isSessionFallback(response) {
+  return response.headers.get('x-kicks-upstream') === 'session-unavailable';
 }
 
 function clearAdminAccessToken() {
@@ -116,6 +128,7 @@ function adminHeaders(options = {}) {
 
 async function refreshAdminAccessTokenFromSession() {
   const response = await request('/admin/auth/session');
+  if (isSessionFallback(response)) throw sessionTemporarilyUnavailableError();
   if (response.status === 204 || response.status === 401 || response.status === 403) {
     clearAdminAccessToken();
     return null;
@@ -193,8 +206,8 @@ export async function fetchProducts() {
   return productsRequest;
 }
 
-export async function fetchHeroSettings() {
-  const response = await request('/storefront/hero');
+export async function fetchHeroSettings(options = {}) {
+  const response = await request('/storefront/hero', { signal: options.signal });
   return parseResponse(response);
 }
 
@@ -207,9 +220,24 @@ export async function saveHeroSettings(settings) {
   return parseResponse(response);
 }
 
+export async function fetchFooterSettings(options = {}) {
+  const response = await request('/storefront/footer', { signal: options.signal });
+  return parseResponse(response);
+}
+
+export async function saveFooterSettings(settings) {
+  const response = await adminRequest('/storefront/footer', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  return parseResponse(response);
+}
+
 export async function uploadHeroImage(file, altText = '') {
+  const webpFile = await requireWebpUpload(file, 'Foto de destaque');
   const body = new FormData();
-  body.append('file', file);
+  body.append('file', webpFile, webpFile.name);
   if (altText.trim()) body.append('altText', altText.trim());
 
   const response = await adminRequest('/storefront/hero/images', {
@@ -233,15 +261,59 @@ export async function saveProduct(productData, imageFiles) {
     throw new Error('Selecione de 1 a 8 fotos para cadastrar o tênis.');
   }
 
+  const webpFiles = await Promise.all(imageFiles.map((file, index) => (
+    requireWebpUpload(file, `Foto ${index + 1}`)
+  )));
   const body = new FormData();
   body.append('product', new Blob([JSON.stringify(productData)], { type: 'application/json' }));
-  imageFiles.forEach((file) => body.append('images', file, file.name));
+  webpFiles.forEach((file) => body.append('images', file, file.name));
 
   const response = await adminRequest('/products', {
     method: 'POST',
     body,
   });
   return parseResponse(response);
+}
+
+export async function deleteProduct(productId) {
+  const normalizedId = Number(productId);
+  if (!Number.isSafeInteger(normalizedId) || normalizedId < 1) {
+    throw new Error('Identificador de produto inválido.');
+  }
+  const response = await adminRequest(`/products/${normalizedId}`, {
+    method: 'DELETE',
+  });
+  if (response.status === 204) return true;
+  return parseResponse(response);
+}
+
+export async function deleteCatalog(confirmation) {
+  const response = await adminRequest('/products', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmation }),
+  });
+  return parseResponse(response);
+}
+
+async function requireWebpUpload(file, label) {
+  if (!(file instanceof Blob) || file.size < 1) {
+    throw new Error(`${label}: arquivo de imagem vazio ou inválido.`);
+  }
+  if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+    throw new Error(`${label}: a imagem WebP deve ter no máximo 2 MB.`);
+  }
+  if (!await isWebpBlob(file)) {
+    throw new Error(`${label}: a imagem não está codificada em WebP. Selecione ou importe a foto novamente.`);
+  }
+
+  const currentName = file instanceof File ? file.name : '';
+  const safeBaseName = currentName
+    .replace(/^.*[\\/]/, '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-z0-9_-]+/gi, '-')
+    .replace(/^-+|-+$/g, '') || 'foto-kicks';
+  return new File([file], `${safeBaseName}.webp`, { type: 'image/webp' });
 }
 
 export async function updateProductStock(productId, stockQuantity) {
@@ -261,10 +333,12 @@ export async function fetchAdminDashboard() {
 export async function getAdminSession() {
   if (hasUsableAdminAccessToken()) {
     const response = await request('/admin/auth/session', { headers: adminHeaders() });
+    if (isSessionFallback(response)) throw sessionTemporarilyUnavailableError();
     if (response.ok && response.status !== 204) {
       const session = await parseResponse(response);
       if (storeAdminAccessToken(session)) return session;
     }
+    if (response.status >= 500) return parseResponse(response);
     clearAdminAccessToken();
   }
   return refreshAdminAccessTokenFromSession();
@@ -300,6 +374,7 @@ export async function logoutAdmin() {
 
 export async function getCustomerSession() {
   const response = await request('/customer/auth/session');
+  if (isSessionFallback(response)) throw sessionTemporarilyUnavailableError();
   if (response.status === 204 || response.status === 401 || response.status === 403) return null;
   return parseResponse(response);
 }
@@ -333,6 +408,11 @@ export async function logoutCustomer() {
 
 export async function fetchCustomerAccount(options = {}) {
   const response = await request('/customer/account', { signal: options.signal });
+  return parseResponse(response);
+}
+
+export async function fetchCustomerOrders(options = {}) {
+  const response = await request('/customer/orders', { signal: options.signal });
   return parseResponse(response);
 }
 
@@ -619,6 +699,3 @@ export async function markStockAlertNotified(alertId) {
   });
   return parseResponse(response);
 }
-
-
-

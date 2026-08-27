@@ -1,5 +1,13 @@
-import { useEffect, useRef } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { useRef } from 'react';
+import { ArrowRight, Heart, Sparkles, X } from 'lucide-react';
+import useModalAccessibility from '../hooks/useModalAccessibility';
+import { getProductImages } from '../utils/productImages';
+import KicksSun from './ui/KicksSun';
+import SafeImage from './ui/SafeImage';
+
+function formatPrice(value) {
+  return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
 
 export default function WishlistDrawer({
   isOpen,
@@ -8,137 +16,65 @@ export default function WishlistDrawer({
   products = [],
   onToggleWishlist,
   onOpenProductDetail,
+  onExplore,
 }) {
   const drawerRef = useRef(null);
   const closeButtonRef = useRef(null);
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    closeButtonRef.current?.focus();
-
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
-
+  useModalAccessibility({ isOpen, dialogRef: drawerRef, initialFocusRef: closeButtonRef, onClose });
   if (!isOpen) return null;
 
-  const wishlistProducts = products.filter((p) => wishlistIds.includes(p.id));
+  const wishlistProducts = products.filter((product) => wishlistIds.includes(product.id));
 
   return (
-    <AnimatePresence>
-      <div
-        className="fixed inset-0 z-50 flex justify-end"
-        onMouseDown={(event) => {
-          if (event.target === event.currentTarget) onClose();
-        }}
-      >
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm"
-          aria-hidden="true"
-        />
+    <div data-modal-root="true" className="drawer-root">
+      <button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar favoritos" />
+      <aside ref={drawerRef} tabIndex="-1" role="dialog" aria-modal="true" aria-labelledby="wishlist-title" className="wishlist-drawer">
+        <header className="cart-drawer-header">
+          <div><p className="eyebrow">Pares que fizeram seu olho brilhar</p><h2 id="wishlist-title">Favoritos <span>{wishlistProducts.length}</span></h2></div>
+          <button ref={closeButtonRef} type="button" className="icon-button" onClick={onClose} aria-label="Fechar favoritos"><X /></button>
+        </header>
 
-        <motion.aside
-          ref={drawerRef}
-          initial={{ x: '100%' }}
-          animate={{ x: 0 }}
-          exit={{ x: '100%' }}
-          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="wishlist-title"
-          className="relative z-10 flex h-full w-full max-w-md flex-col bg-[var(--surface-solid)] p-6 shadow-2xl border-l border-[var(--line)]"
-        >
-          <div className="flex items-center justify-between border-b border-[var(--line)] pb-4">
-            <div>
-              <p className="section-kicker">Seus Favoritos</p>
-              <h2 id="wishlist-title" className="text-xl font-extrabold text-[var(--text)]">
-                Lista de Desejos ({wishlistProducts.length})
-              </h2>
-            </div>
-            <button
-              ref={closeButtonRef}
-              type="button"
-              onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--bg)] text-xl font-bold text-[var(--text)] border border-[var(--line)]"
-              aria-label="Fechar lista de desejos"
-            >
-              ×
-            </button>
+        {wishlistProducts.length === 0 ? (
+          <div className="cart-empty">
+            <div className="cart-empty-art wishlist-empty-art" aria-hidden="true"><KicksSun /><Heart /></div>
+            <p className="eyebrow">Ainda não rolou match</p>
+            <h3>Seu coração está livre para escolher.</h3>
+            <p>Quando encontrar aquele sneaker, toque no coração para guardar aqui.</p>
+            <button type="button" className="button button-primary" onClick={onExplore || onClose}>Descobrir meu par <ArrowRight size={17} /></button>
           </div>
-
-          <div className="flex-1 overflow-y-auto py-5 space-y-4">
-            {wishlistProducts.length === 0 ? (
-              <div className="py-16 text-center text-xs text-[var(--muted)]">
-                <span className="text-4xl mb-3 block">🤍</span>
-                <p className="text-sm font-bold text-[var(--text)]">Sua lista de desejos está vazia</p>
-                <p className="mt-1">Clique no ícone de coração nos tênis para salvá-los aqui!</p>
-              </div>
-            ) : (
-              wishlistProducts.map((prod) => (
-                <div
-                  key={prod.id}
-                  className="flex gap-4 rounded-2xl bg-[var(--bg)] p-3.5 border border-[var(--line)] items-center"
-                >
-                  <img
-                    src={prod.imageUrl}
-                    alt={prod.name}
-                    className="h-16 w-16 rounded-xl object-cover border border-[var(--line)] shrink-0"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-xs font-bold text-[var(--text)] truncate">{prod.name}</h3>
-                    <p className="text-xs font-black text-[var(--accent)] mt-0.5">
-                      R$ {Number(prod.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </p>
-                    <div className="flex items-center gap-2 mt-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onOpenProductDetail(prod);
-                        }}
-                        className="buy-button px-3 py-1 rounded-lg text-[11px] font-bold"
-                      >
-                        Ver Detalhes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onToggleWishlist(prod.id)}
-                        className="text-[11px] text-rose-500 hover:underline"
-                      >
-                        Remover
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          {wishlistProducts.length > 0 && (
-            <div className="border-t border-[var(--line)] pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="buy-button w-full py-3 rounded-xl text-xs font-bold"
-              >
-                Continuar Navegando
-              </button>
+        ) : (
+          <div className="wishlist-content">
+            <div className="wishlist-note"><Sparkles aria-hidden="true" /> Seus favoritos ficam salvos neste navegador.</div>
+            <div className="wishlist-list">
+              {wishlistProducts.map((product) => {
+                const image = getProductImages(product)[0];
+                return (
+                  <article key={product.id} className="wishlist-item">
+                    <button type="button" className="wishlist-item-main" onClick={() => onOpenProductDetail?.(product)}>
+                      <span className="wishlist-item-media">
+                        <SafeImage
+                          src={image?.imageUrl}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          fallback={<Heart aria-hidden="true" />}
+                        />
+                      </span>
+                      <span className="wishlist-item-copy">
+                        <small>{product.category || 'Sneaker'}</small>
+                        <strong>{product.name}</strong>
+                        <b>{formatPrice(product.price)}</b>
+                      </span>
+                      <ArrowRight aria-hidden="true" />
+                    </button>
+                    <button type="button" className="wishlist-remove" onClick={() => onToggleWishlist?.(product.id)} aria-label={`Remover ${product.name} dos favoritos`}><Heart fill="currentColor" /></button>
+                  </article>
+                );
+              })}
             </div>
-          )}
-        </motion.aside>
-      </div>
-    </AnimatePresence>
+          </div>
+        )}
+      </aside>
+    </div>
   );
 }

@@ -1,246 +1,120 @@
-import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { validateCoupon } from '../services/api';
+import { useRef } from 'react';
+import { ArrowRight, Minus, Plus, ShieldCheck, ShoppingBag, Sparkles, Trash2, X } from 'lucide-react';
+import useModalAccessibility from '../hooks/useModalAccessibility';
+import KicksSun from './ui/KicksSun';
+import SafeImage from './ui/SafeImage';
+
+function formatPrice(value) {
+  return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
 
 export default function CartDrawer({
   isOpen,
   onClose,
-  cartItems,
+  cartItems = [],
   onRemoveItem,
+  onChangeQuantity,
   onCheckout,
-  appliedCoupon,
-  onApplyCoupon,
-  onRemoveCoupon,
+  onExplore,
 }) {
+  const drawerRef = useRef(null);
   const closeButtonRef = useRef(null);
-  const [couponCode, setCouponCode] = useState('');
-  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
-  const [couponError, setCouponError] = useState('');
+  useModalAccessibility({
+    isOpen,
+    dialogRef: drawerRef,
+    initialFocusRef: closeButtonRef,
+    onClose,
+  });
 
-  const subtotal = cartItems.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0);
-  const discountAmount = appliedCoupon?.discountAmount ? Number(appliedCoupon.discountAmount) : 0;
-  const finalTotal = Math.max(0, subtotal - discountAmount);
-  const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+  if (!isOpen) return null;
 
-  const handleImageError = (event) => {
-    event.currentTarget.style.display = 'none';
-    event.currentTarget.parentElement.classList.add('cart-image-unavailable');
-  };
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    closeButtonRef.current?.focus();
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
-
-  const handleCouponSubmit = async (e) => {
-    e.preventDefault();
-    setCouponError('');
-    if (!couponCode.trim()) return;
-
-    setIsValidatingCoupon(true);
-    try {
-      const result = await validateCoupon(couponCode, subtotal);
-      if (result.valid) {
-        onApplyCoupon?.(result);
-        setCouponCode('');
-      } else {
-        setCouponError(result.message || 'Cupom inválido.');
-      }
-    } catch (err) {
-      setCouponError(err.message || 'Erro ao validar cupom.');
-    } finally {
-      setIsValidatingCoupon(false);
-    }
-  };
+  const totalItems = cartItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  const subtotal = cartItems.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0);
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="cart-overlay fixed inset-0 z-50 cursor-pointer"
-          />
+    <div data-modal-root="true" className="drawer-root">
+      <button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar sacola" />
+      <aside
+        ref={drawerRef}
+        tabIndex="-1"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cart-title"
+        className="cart-drawer"
+      >
+        <header className="cart-drawer-header">
+          <div>
+            <p className="eyebrow">Sua seleção feliz</p>
+            <h2 id="cart-title">Sacola <span>{totalItems}</span></h2>
+          </div>
+          <button ref={closeButtonRef} type="button" className="icon-button" onClick={onClose} aria-label="Fechar sacola"><X /></button>
+        </header>
 
-          <motion.aside
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cart-title"
-            className="cart-drawer fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col justify-between p-6 shadow-2xl sm:p-7"
-          >
-            <div className="flex-1 overflow-y-auto pr-1">
-              <div className="cart-heading flex items-center justify-between pb-5 border-b border-[var(--line)]">
-                <div>
-                  <p className="section-kicker">Sua seleção</p>
-                  <h2 id="cart-title" className="mt-1 flex items-center gap-2 text-2xl font-extrabold text-[var(--text)]">
-                    Sacola
-                    <span className="cart-items-count rounded-full px-2.5 py-1 text-xs">
-                      {totalItems} {totalItems === 1 ? 'item' : 'itens'}
-                    </span>
-                  </h2>
-                </div>
-                <button
-                  ref={closeButtonRef}
-                  type="button"
-                  onClick={onClose}
-                  className="cart-close"
-                  aria-label="Fechar carrinho"
-                >
-                  ×
-                </button>
-              </div>
+        {cartItems.length === 0 ? (
+          <div className="cart-empty">
+            <div className="cart-empty-art" aria-hidden="true"><KicksSun /><ShoppingBag /></div>
+            <p className="eyebrow">Espaço para um novo favorito</p>
+            <h3>Seu próximo par ainda está por aí.</h3>
+            <p>Explore a vitrine e, quando rolar o match, ele aparece aqui.</p>
+            <button type="button" className="button button-primary" onClick={onExplore || onClose}>Explorar sneakers <ArrowRight size={17} /></button>
+          </div>
+        ) : (
+          <>
+            <div className="cart-celebration" role="status">
+              <Sparkles aria-hidden="true" />
+              <div><strong>Boa escolha.</strong><span>Seu par está guardado nesta sacola.</span></div>
+            </div>
 
-              <div className="cart-list mt-4 space-y-3">
-                {cartItems.length === 0 ? (
-                  <div className="cart-empty py-14 text-center">
-                    <span aria-hidden="true">◌</span>
-                    <p className="mt-3 text-sm">Sua seleção ainda está vazia.</p>
-                  </div>
-                ) : (
-                  cartItems.map((item) => (
-                    <article
-                      key={item.cartKey || item.id}
-                      className="cart-item flex items-center gap-4 rounded-2xl p-3 bg-[var(--surface-solid)] border border-[var(--line)]"
-                    >
-                      <div className="cart-item-image flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[var(--bg)] border border-[var(--line)]">
-                        <img
-                          src={item.imageUrl}
-                          alt=""
-                          onError={handleImageError}
-                          loading="lazy"
-                          decoding="async"
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h3 className="line-clamp-1 text-sm font-semibold text-[var(--text)]">{item.name}</h3>
-                        <div className="cart-item-specs flex flex-wrap items-center gap-1.5 mt-0.5">
-                          {item.selectedSize && (
-                            <span className="inline-block text-[11px] font-semibold bg-[var(--bg)] px-1.5 py-0.5 rounded border border-[var(--line)] text-[var(--text)]">
-                              Tam: {item.selectedSize}
-                            </span>
-                          )}
-                          {item.selectedColor && (
-                            <span className="inline-block text-[11px] font-semibold bg-[var(--bg)] px-1.5 py-0.5 rounded border border-[var(--line)] text-[var(--text)]">
-                              Cor: {item.selectedColor}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-xs text-[var(--muted)] block mt-0.5">Quantidade {item.quantity}</span>
-                        <p className="mt-1 text-sm font-bold text-[var(--accent)]">
-                          R$ {(Number(item.price) * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onRemoveItem(item.cartKey || item.id)}
-                        className="cart-remove text-xs text-rose-500 hover:underline"
-                        aria-label={`Remover ${item.name} da sacola`}
-                      >
-                        Remover
-                      </button>
-                    </article>
-                  ))
-                )}
-              </div>
-
-              {/* Coupon Form in Cart */}
-              {cartItems.length > 0 && (
-                <div className="mt-5 rounded-2xl bg-[var(--bg)] p-3.5 border border-[var(--line)]">
-                  <span className="block text-xs font-semibold text-[var(--text)] mb-1.5">
-                    🎟️ Cupom de Desconto:
-                  </span>
-                  {appliedCoupon ? (
-                    <div className="flex items-center justify-between bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20 text-xs">
-                      <div>
-                        <span className="font-bold text-emerald-500">Cupom {appliedCoupon.code}</span>
-                        <span className="text-[11px] text-[var(--muted)] block">
-                          Desconto de R$ {discountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={onRemoveCoupon}
-                        className="text-xs text-rose-500 font-bold hover:underline"
-                      >
-                        Remover
-                      </button>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleCouponSubmit} className="flex gap-2">
-                      <input
-                        type="text"
-                        value={couponCode}
-                        onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                        placeholder="Ex: KICKS10"
-                        className="flex-1 rounded-xl bg-[var(--surface-solid)] p-2 text-xs text-[var(--text)] uppercase font-bold border border-[var(--line)] focus:border-[var(--accent)] focus:outline-none"
+            <div className="cart-items">
+              {cartItems.map((item) => {
+                const itemKey = item.cartKey || item.id;
+                const quantity = Number(item.quantity || 1);
+                const stock = Number(item.stockQuantity || 0);
+                const canIncrease = stock > 0 && quantity < stock;
+                return (
+                  <article key={itemKey} className="cart-item">
+                    <div className="cart-item-media">
+                      <SafeImage
+                        src={item.imageUrl}
+                        alt=""
+                        width="104"
+                        height="104"
+                        loading="lazy"
+                        decoding="async"
+                        fallback={<ShoppingBag aria-hidden="true" />}
                       />
-                      <button
-                        type="submit"
-                        disabled={isValidatingCoupon || !couponCode.trim()}
-                        className="buy-button px-3 py-2 rounded-xl text-xs font-bold disabled:opacity-40"
-                      >
-                        {isValidatingCoupon ? '...' : 'Aplicar'}
-                      </button>
-                    </form>
-                  )}
-                  {couponError && <p className="mt-1.5 text-xs text-rose-500 font-semibold">{couponError}</p>}
-                </div>
-              )}
+                    </div>
+                    <div className="cart-item-content">
+                      <span>{item.category || 'Sneaker'}</span>
+                      <h3>{item.name}</h3>
+                      <p>{formatPrice(item.price)} cada</p>
+                      {(item.selectedSize || item.selectedColor) && (
+                        <small>{[item.selectedSize, item.selectedColor].filter(Boolean).join(' · ')}</small>
+                      )}
+                      <div className="cart-item-actions">
+                        <div className="quantity-stepper" aria-label={`Quantidade de ${item.name}`}>
+                          <button type="button" onClick={() => onChangeQuantity?.(itemKey, quantity - 1)} aria-label={`Diminuir quantidade de ${item.name}`}><Minus /></button>
+                          <output aria-live="polite">{quantity}</output>
+                          <button type="button" disabled={!canIncrease} onClick={() => onChangeQuantity?.(itemKey, quantity + 1)} aria-label={`Aumentar quantidade de ${item.name}`}><Plus /></button>
+                        </div>
+                        <button type="button" className="cart-remove" onClick={() => onRemoveItem?.(itemKey)} aria-label={`Remover ${item.name}`}><Trash2 /><span>Remover</span></button>
+                      </div>
+                    </div>
+                    <strong className="cart-item-total">{formatPrice(Number(item.price) * quantity)}</strong>
+                  </article>
+                );
+              })}
             </div>
 
-            <div className="cart-summary space-y-4 pt-4 border-t border-[var(--line)]">
-              <div className="space-y-1 text-xs">
-                <div className="flex justify-between text-[var(--muted)]">
-                  <span>Subtotal</span>
-                  <span>R$ {subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                </div>
-                {appliedCoupon && (
-                  <div className="flex justify-between text-emerald-500 font-semibold">
-                    <span>Desconto ({appliedCoupon.code})</span>
-                    <span>- R$ {discountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                  </div>
-                )}
-                <div className="flex items-end justify-between gap-4 pt-2 border-t border-[var(--line)]">
-                  <span className="text-sm font-bold text-[var(--text)]">Total Final</span>
-                  <span className="text-2xl font-extrabold text-[var(--accent)]">
-                    R$ {finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                disabled={cartItems.length === 0}
-                onClick={onCheckout}
-                className="cart-checkout buy-button w-full cursor-pointer rounded-2xl py-3.5 font-bold transition-all disabled:cursor-not-allowed shadow-xl"
-              >
-                Finalizar Compra <span aria-hidden="true">→</span>
-              </button>
-              <p className="cart-security text-center text-xs text-[var(--muted)]">
-                <span aria-hidden="true">✓</span> PIX instantâneo, Cartão em 12x e WhatsApp
-              </p>
-            </div>
-          </motion.aside>
-        </>
-      )}
-    </AnimatePresence>
+            <footer className="cart-summary">
+              <div className="cart-summary-row"><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div>
+              <p>O preço e o estoque são confirmados novamente pelo servidor antes de criar o pedido.</p>
+              <button type="button" className="button button-primary" onClick={onCheckout}>Continuar para entrega <ArrowRight size={18} /></button>
+              <span className="cart-security"><ShieldCheck size={16} /> Checkout conectado à sua conta e ao estoque real.</span>
+            </footer>
+          </>
+        )}
+      </aside>
+    </div>
   );
 }

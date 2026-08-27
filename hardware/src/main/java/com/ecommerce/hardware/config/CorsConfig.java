@@ -42,7 +42,7 @@ public class CorsConfig {
         config.setAllowedOriginPatterns(allowedOriginPatterns);
         config.addAllowedOriginPattern(VERCEL_PROJECT_PREVIEW_ORIGIN);
         config.setAllowedHeaders(List.of("Content-Type", "X-XSRF-TOKEN", "Authorization", "Idempotency-Key"));
-        config.setAllowedMethods(List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

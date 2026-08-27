@@ -55,6 +55,15 @@
             <span>Ao clicar em <b>Baixar Arquivo (.JSON)</b>, você pode arrastar o arquivo direto para o <b>Painel Admin da Loja</b>!</span>
           </div>
 
+          <!-- Colorway Selector -->
+          <div id="colorVariantsSection" class="form-section is-hidden">
+            <div class="section-header">
+              <label class="section-label">Cores encontradas (<span id="selectedColorVariantsCount">0</span> selecionadas)</label>
+            </div>
+            <div id="colorVariantsList" class="color-variants-list"></div>
+            <small class="field-hint">Os nomes chineses são traduzidos para português. Cada cor selecionada vira uma divisão separada do tênis na loja, com suas próprias fotos.</small>
+          </div>
+
           <!-- Image Gallery Selector -->
           <div class="form-section">
             <div class="section-header">
@@ -62,7 +71,7 @@
               <button type="button" id="selectAllImagesBtn" class="text-link">Selecionar todas</button>
             </div>
             <div id="imageGallery" class="image-gallery-grid"></div>
-            <small class="field-hint">A 1ª foto selecionada será a capa principal da vitrine.</small>
+            <small class="field-hint">Até 8 fotos. A extensão converte todas para WebP (máx. 2 MB cada); a 1ª será a capa.</small>
           </div>
 
           <!-- Product Details Fields -->
@@ -169,12 +178,12 @@
 
           <div class="form-group">
             <label for="adminEmail" class="form-label">E-mail do Administrador</label>
-            <input type="email" id="adminEmail" class="form-input" placeholder="admin@example.test" value="admin@example.test">
+            <input type="email" id="adminEmail" class="form-input" placeholder="E-mail configurado no back-end" autocomplete="username">
           </div>
 
           <div class="form-group">
             <label for="adminPassword" class="form-label">Senha do Administrador</label>
-            <input type="password" id="adminPassword" class="form-input" placeholder="••••••••••••" value="password1234">
+            <input type="password" id="adminPassword" class="form-input" placeholder="Senha configurada no back-end" autocomplete="current-password">
           </div>
 
           <div class="settings-actions">
@@ -194,11 +203,13 @@
 
     <!-- Footer -->
     <footer class="app-footer">
-      <span>Kicks Store Brasil • v1.1.0</span>
+      <span>Kicks Store Brasil • v1.2.0</span>
       <a href="http://localhost:5173" id="openStoreLink" target="_blank" class="footer-link">Abrir Vitrine ↗</a>
     </footer>
   </div>
 
+  <script src="color-translation.js"></script>
+  <script src="image-processing.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -20,6 +20,8 @@ public interface ProductImageRepository extends JpaRepository<ProductImage, Long
 
     Optional<ProductImage> findByIdAndProduct_Id(Long id, Long productId);
 
+    void deleteByProduct_Id(Long productId);
+
     interface ProductImageMetadata {
         Long getId();
 

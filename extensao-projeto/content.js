@@ -1,6 +1,6 @@
 // Kicks Store - Universal Sneaker & Product Scraper Engine
 
-function scanProductPage() {
+async function scanProductPage() {
   const result = {
     title: '',
     price: '',
@@ -21,10 +21,15 @@ function scanProductPage() {
   // 3. Extract using DOM heuristics and custom e-commerce selectors
   extractDomHeuristics(result);
 
-  // 4. Extract all gallery and high-res images
+  // 4. Extract each supplier colorway before harvesting the general gallery.
+  // Color options are kept separate so the exported file can create one clean
+  // storefront entry per color instead of mixing every photo together.
+  await extractColorVariants(result);
+
+  // 5. Extract all gallery and high-res images
   extractAllImages(result);
 
-  // 5. Clean up, format, and deduce category
+  // 6. Clean up, format, and deduce category
   finalizeData(result);
 
   return result;
@@ -56,6 +61,8 @@ function extractJsonLd(result) {
               if (url) addUniqueImage(result.images, url);
             }
           }
+
+          extractStructuredProductColors(item, result);
         }
       } catch {
         // Continue to next script
@@ -64,6 +71,34 @@ function extractJsonLd(result) {
   } catch (e) {
     console.warn('Erro ao processar JSON-LD:', e);
   }
+}
+
+function extractStructuredProductColors(product, result) {
+  const variants = Array.isArray(product?.hasVariant) ? product.hasVariant : [];
+  for (const variant of variants) {
+    const sourceName = variant?.color || variant?.name;
+    if (!sourceName) continue;
+    mergeColorVariant(result, {
+      sourceName,
+      images: normalizeStructuredImages(variant.image),
+    });
+  }
+
+  const colors = Array.isArray(product?.color) ? product.color : [product?.color];
+  for (const sourceName of colors.filter(Boolean)) {
+    mergeColorVariant(result, {
+      sourceName,
+      images: normalizeStructuredImages(product.image),
+    });
+  }
+}
+
+function normalizeStructuredImages(value) {
+  const values = Array.isArray(value) ? value : [value];
+  return values
+    .map((image) => typeof image === 'string' ? image : image?.url || image?.contentUrl)
+    .filter(Boolean)
+    .map(resolveUrl);
 }
 
 function findProductObjects(obj) {
@@ -155,7 +190,369 @@ function extractDomHeuristics(result) {
   }
 }
 
-// ── 4. Image Harvesting (High Res & Multi-angle) ──────────────────────────────
+// ── 4. Colorway Extraction ───────────────────────────────────────────────────
+const COLOR_GROUP_MARKER = /(?:颜色分类|颜色|色号|配色|colour|color|\bcor\b)/i;
+const COLOR_OPTION_SELECTOR = [
+  '[role="radio"]',
+  '[role="option"]',
+  'button',
+  '[data-value]',
+  'li[data-value]',
+  'li[data-sku-id]',
+  '[data-color]',
+  '[data-color-name]',
+  '[data-option-value]',
+  '[data-sku-id]',
+  '[data-vid]',
+  '[title]',
+  '[aria-label]',
+  '[class*="sku-item"]',
+  '[class*="skuItem"]',
+  '[class*="sku-value"]',
+  '[class*="skuValue"]',
+  '[class*="prop-item"]',
+  '[class*="propItem"]',
+  '[class*="prop-value"]',
+  '[class*="propValue"]',
+  '[class*="spec-item"]',
+  '[class*="specItem"]',
+  '[class*="color-item"]',
+  '[class*="colorItem"]',
+  '[class*="value-item"]',
+  '[class*="valueItem"]',
+].join(',');
+
+async function extractColorVariants(result) {
+  extractEmbeddedColorData(result);
+
+  const group = findBestColorGroup();
+  if (!group) {
+    finalizeColorVariants(result);
+    return;
+  }
+
+  const options = getColorOptionElements(group);
+  const descriptors = options
+    .map((element, index) => describeColorOption(element, index))
+    .filter(Boolean)
+    .slice(0, 32);
+
+  for (const descriptor of descriptors) mergeColorVariant(result, descriptor);
+
+  // Many marketplaces replace the main gallery only after a color is selected.
+  // We briefly select each safe button and take a snapshot of that gallery.
+  const originalSelection = options.find(isSelectedOption);
+  const originalSelectionName = getColorOptionLabel(originalSelection);
+  for (const descriptor of descriptors.slice(0, 24)) {
+    const element = resolveLiveColorOption(group, descriptor);
+    if (!isSafeClickableOption(element)) continue;
+    try {
+      element.click();
+      await waitForVariantGallery();
+      const galleryImages = collectFocusedGalleryImages();
+      mergeColorVariant(result, { ...descriptor, images: galleryImages });
+    } catch {
+      // A supplier can replace or disable its SKU element while the page updates.
+      // The label and swatch captured before clicking remain useful.
+    }
+  }
+
+  const liveOriginalSelection = originalSelection && document.contains(originalSelection)
+    ? originalSelection
+    : findColorOptionByName(findBestColorGroup(), originalSelectionName);
+  if (isSafeClickableOption(liveOriginalSelection)) {
+    try {
+      liveOriginalSelection.click();
+      await waitForVariantGallery(80);
+    } catch {
+      // Restoring the original option is best effort only.
+    }
+  }
+
+  finalizeColorVariants(result);
+}
+
+function resolveLiveColorOption(originalGroup, descriptor) {
+  if (document.contains(descriptor?.element)) return descriptor.element;
+  const liveGroup = document.contains(originalGroup) ? originalGroup : findBestColorGroup();
+  return findColorOptionByName(liveGroup, descriptor?.sourceName);
+}
+
+function findColorOptionByName(group, sourceName) {
+  const target = cleanVariantText(sourceName).toLocaleLowerCase();
+  if (!group || !target) return null;
+  return getColorOptionElements(group)
+    .find((element) => getColorOptionLabel(element).toLocaleLowerCase() === target) || null;
+}
+
+function findBestColorGroup() {
+  let singleOptionFallback = null;
+  const directSelectors = [
+    '[data-property-name*="颜色"]',
+    '[data-prop-name*="颜色"]',
+    '[aria-label*="颜色"]',
+    '.J_Prop_Color',
+    '[class*="color-sku"]',
+    '[class*="colorSku"]',
+    '[class*="sku-color"]',
+    '[class*="skuColor"]',
+    '[class*="color-variant"]',
+    '[class*="colorVariant"]',
+  ];
+  for (const selector of directSelectors) {
+    for (const candidate of document.querySelectorAll(selector)) {
+      const optionCount = getColorOptionElements(candidate).length;
+      if (optionCount >= 2) return candidate;
+      if (optionCount === 1 && !singleOptionFallback) singleOptionFallback = candidate;
+    }
+  }
+
+  const labels = document.querySelectorAll('legend, dt, label, h2, h3, h4, strong, span, div');
+  for (const label of [...labels].slice(0, 4000)) {
+    const ownText = getOwnText(label);
+    if (!ownText || ownText.length > 80 || !COLOR_GROUP_MARKER.test(ownText)) continue;
+
+    let candidate = label.parentElement;
+    for (let depth = 0; candidate && depth < 4; depth++, candidate = candidate.parentElement) {
+      const options = getColorOptionElements(candidate);
+      if (options.length >= 2 && options.length <= 80) return candidate;
+      if (options.length === 1 && !singleOptionFallback) singleOptionFallback = candidate;
+    }
+  }
+  return singleOptionFallback;
+}
+
+function getOwnText(element) {
+  return [...(element?.childNodes || [])]
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent || '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getColorOptionElements(group) {
+  if (!group?.querySelectorAll) return [];
+  const candidates = [...group.querySelectorAll(COLOR_OPTION_SELECTOR)];
+  const usable = candidates.filter((element) => {
+    if (!element || element.closest('script, style, template')) return false;
+    const label = getColorOptionLabel(element);
+    if (!label || label.length > 100) return false;
+    if (/^(?:选择|请选择|颜色分类|颜色|color|colour|cor)$/i.test(label)) return false;
+    if (/^[\d.:_-]+$/.test(label) && !getElementImageUrl(element)) return false;
+    return true;
+  });
+
+  const leaves = usable.filter((element) => !usable.some((other) => other !== element && element.contains(other)));
+  const unique = [];
+  const seen = new Set();
+  for (const element of leaves) {
+    const key = `${getColorOptionLabel(element).toLocaleLowerCase()}|${getElementImageUrl(element)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(element);
+  }
+  return unique;
+}
+
+function describeColorOption(element, index) {
+  const sourceName = getColorOptionLabel(element);
+  if (!sourceName) return null;
+  const imageUrl = getElementImageUrl(element);
+  return {
+    element,
+    sourceName,
+    name: translateColorName(sourceName, index),
+    imageUrl,
+    images: imageUrl ? [imageUrl] : [],
+    selected: true,
+  };
+}
+
+function getColorOptionLabel(element) {
+  const values = [
+    element?.getAttribute?.('data-name'),
+    element?.getAttribute?.('data-title'),
+    element?.getAttribute?.('data-label'),
+    element?.getAttribute?.('aria-label'),
+    element?.getAttribute?.('title'),
+    element?.querySelector?.('img')?.getAttribute?.('alt'),
+    element?.textContent,
+    element?.getAttribute?.('data-value'),
+    element?.getAttribute?.('data-option-value'),
+  ];
+  for (const value of values) {
+    const clean = cleanVariantText(value);
+    if (clean && !/^[\d.:_-]+$/.test(clean)) return clean;
+  }
+  return '';
+}
+
+function cleanVariantText(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/^(?:颜色分类|颜色|色号|配色|color|colour|cor)\s*[:：-]\s*/i, '')
+    .replace(/(?:库存|已售|销量|约|剩余)\s*\d+.*$/i, '')
+    .replace(/[¥￥$]\s*\d+(?:[.,]\d+)?/g, '')
+    .trim();
+}
+
+function getElementImageUrl(element) {
+  if (!element) return '';
+  const image = element.matches?.('img') ? element : element.querySelector?.('img, source');
+  const candidates = [
+    element.getAttribute?.('data-image'),
+    element.getAttribute?.('data-img'),
+    element.getAttribute?.('data-src'),
+    element.getAttribute?.('data-original'),
+    image?.getAttribute?.('data-zoom'),
+    image?.getAttribute?.('data-src'),
+    image?.getAttribute?.('src'),
+    image?.getAttribute?.('srcset'),
+  ];
+  for (let candidate of candidates) {
+    if (!candidate) continue;
+    if (candidate.includes(',')) candidate = candidate.split(',').at(-1).trim().split(/\s+/)[0];
+    const url = upgradeToHighRes(resolveUrl(candidate));
+    if (isValidImageUrl(url)) return url;
+  }
+
+  const backgroundImage = element.style?.backgroundImage || getComputedStyle(element).backgroundImage;
+  const match = backgroundImage?.match(/url\(["']?([^"')]+)["']?\)/i);
+  const url = match?.[1] ? upgradeToHighRes(resolveUrl(match[1])) : '';
+  return isValidImageUrl(url) ? url : '';
+}
+
+function isSelectedOption(element) {
+  if (!element) return false;
+  return element.matches('[aria-checked="true"], [aria-selected="true"], .selected, .is-selected, .active, .checked')
+    || element.getAttribute('data-selected') === 'true';
+}
+
+function isSafeClickableOption(element) {
+  if (!element || !document.contains(element)) return false;
+  if (element.matches('[disabled], [aria-disabled="true"], .disabled, .is-disabled')) return false;
+  if (element.matches('a[href]')) {
+    const href = element.getAttribute('href') || '';
+    if (href && href !== '#' && !href.toLocaleLowerCase().startsWith('javascript:')) return false;
+  }
+  return typeof element.click === 'function';
+}
+
+function waitForVariantGallery(delay = 260) {
+  return new Promise((resolve) => setTimeout(resolve, delay));
+}
+
+function collectFocusedGalleryImages() {
+  const imageList = [];
+  const selectors = [
+    '.product-gallery', '.gallery', '.carousel', '.swiper-wrapper', '[data-gallery]',
+    '[data-slider]', '.slick-track', '.product-images', '.pdp-images', '.image-gallery',
+    '.main-image', '#product-gallery', '[class*="mainImage"]', '[class*="imagePreview"]',
+    '[class*="magnifier"]', '[class*="preview"]',
+  ];
+  for (const selector of selectors) {
+    for (const container of document.querySelectorAll(selector)) {
+      for (const element of container.querySelectorAll('img, picture source, [style*="background-image"]')) {
+        harvestElementImage(element, imageList);
+        if (imageList.length >= 8) break;
+      }
+      if (imageList.length >= 8) break;
+    }
+    if (imageList.length >= 8) break;
+  }
+  return imageList.map((image) => image.url);
+}
+
+function extractEmbeddedColorData(result) {
+  const scripts = document.querySelectorAll('script[type="application/json"], script[type="application/ld+json"]');
+  let visited = 0;
+  for (const script of [...scripts].slice(0, 40)) {
+    const source = script.textContent?.trim();
+    if (!source || source.length > 2_000_000 || !/^[{[]/.test(source)) continue;
+    try {
+      visitStructuredNode(JSON.parse(source), 0);
+    } catch {
+      // Not every application/json script is strict JSON.
+    }
+  }
+
+  function visitStructuredNode(node, depth) {
+    if (!node || typeof node !== 'object' || depth > 10 || visited++ > 30_000) return;
+    if (Array.isArray(node)) {
+      for (const child of node) visitStructuredNode(child, depth + 1);
+      return;
+    }
+
+    const propertyName = cleanVariantText(node.propertyName || node.propName || node.label || node.title || node.name);
+    const values = node.values || node.options || node.items || node.children || node.valueList;
+    if (propertyName && COLOR_GROUP_MARKER.test(propertyName) && Array.isArray(values)) {
+      for (const [index, value] of values.entries()) {
+        if (typeof value === 'string') {
+          mergeColorVariant(result, { sourceName: value, name: translateColorName(value, index), images: [] });
+          continue;
+        }
+        const sourceName = value?.name || value?.label || value?.title || value?.value || value?.text;
+        if (!sourceName) continue;
+        const imageUrl = value?.imageUrl || value?.image || value?.imgUrl || value?.picture || value?.picUrl || '';
+        mergeColorVariant(result, {
+          sourceName,
+          name: translateColorName(sourceName, index),
+          imageUrl,
+          images: imageUrl ? [imageUrl] : [],
+        });
+      }
+    }
+    for (const value of Object.values(node)) visitStructuredNode(value, depth + 1);
+  }
+}
+
+function mergeColorVariant(result, incoming) {
+  const sourceName = cleanVariantText(incoming?.sourceName || incoming?.name);
+  if (!sourceName) return;
+  const name = incoming?.name || translateColorName(sourceName, result.variants.length);
+  const normalizedName = name.toLocaleLowerCase('pt-BR');
+  const key = /^cor \d+$/i.test(name)
+    ? `${sourceName}|${name}`.toLocaleLowerCase('pt-BR')
+    : normalizedName;
+  let variant = result.variants.find((item) => item._key === key);
+  if (!variant) {
+    variant = {
+      _key: key,
+      sourceName,
+      name,
+      imageUrl: '',
+      images: [],
+      selected: incoming?.selected !== false,
+    };
+    result.variants.push(variant);
+  }
+
+  const sources = [incoming?.imageUrl, ...(incoming?.images || [])];
+  for (const rawSource of sources) {
+    const source = typeof rawSource === 'string' ? rawSource : rawSource?.url;
+    const url = source ? upgradeToHighRes(resolveUrl(source)) : '';
+    if (!isValidImageUrl(url) || variant.images.some((image) => image.url.split('?')[0] === url.split('?')[0])) continue;
+    variant.images.push({ id: variant.images.length + 1, url, selected: true });
+    if (!variant.imageUrl) variant.imageUrl = url;
+    if (variant.images.length >= 8) break;
+  }
+}
+
+function finalizeColorVariants(result) {
+  result.variants = result.variants
+    .filter((variant) => variant?.name)
+    .slice(0, 24)
+    .map(({ _key, element, ...variant }) => variant);
+}
+
+function translateColorName(sourceName, index) {
+  return globalThis.KicksColorTranslator?.translateColorName?.(sourceName, index)
+    || cleanVariantText(sourceName)
+    || `Cor ${index + 1}`;
+}
+
+// ── 5. Image Harvesting (High Res & Multi-angle) ──────────────────────────────
 function extractAllImages(result) {
   // Look inside product galleries and carousels first
   const gallerySelectors = [
@@ -297,7 +694,7 @@ function addUniqueImage(list, url) {
   }
 }
 
-// ── 5. Final Formatting & Category Deduction ──────────────────────────────────
+// ── 6. Final Formatting & Category Deduction ──────────────────────────────────
 function finalizeData(result) {
   // Clean title
   if (result.title) {
@@ -350,9 +747,15 @@ function cleanText(text) {
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'SCAN_PAGE') {
-    const product = scanProductPage();
-    sendResponse({ success: true, product });
+  if (request.action === 'PING') {
+    sendResponse({ ready: true, version: '1.2.0' });
+    return false;
   }
-  return true;
+  if (request.action === 'SCAN_PAGE' || request.action === 'SCAN_PAGE_V2') {
+    scanProductPage()
+      .then((product) => sendResponse({ success: true, product }))
+      .catch((error) => sendResponse({ success: false, error: error?.message || 'Falha ao escanear a página.' }));
+    return true;
+  }
+  return false;
 });

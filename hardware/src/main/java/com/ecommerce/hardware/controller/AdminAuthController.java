@@ -3,12 +3,14 @@ package com.ecommerce.hardware.controller;
 import com.ecommerce.hardware.auth.AdminAuthenticator;
 import com.ecommerce.hardware.auth.AdminLoginRequest;
 import com.ecommerce.hardware.auth.AdminSessionResponse;
+import com.ecommerce.hardware.auth.AdminTokenResponse;
 import com.ecommerce.hardware.security.AdminAccessTokenService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -59,17 +61,8 @@ public class AdminAuthController {
         String clientIp = request.getRemoteAddr();
         AdminAuthenticator.AuthenticationResult result = adminAuthenticator.authenticate(login, clientIp);
 
-        if (result.rateLimited()) {
-            LOG.warn("Admin login rate limited: ip={}", clientIp);
-            return ResponseEntity.status(429)
-                    .header(HttpHeaders.RETRY_AFTER, Long.toString(result.retryAfterSeconds()))
-                    .body(Map.of("message", "Muitas tentativas. Tente novamente mais tarde."));
-        }
-
         if (!result.authenticated()) {
-            applyBackoff(result.delayMillis());
-            LOG.warn("Admin login failed: ip={}", clientIp);
-            return ResponseEntity.status(401).body(Map.of("message", "Credenciais invalidas."));
+            return authenticationFailure(result, clientIp, "login web");
         }
 
         request.getSession(true);
@@ -87,6 +80,28 @@ public class AdminAuthController {
         AdminAccessTokenService.IssuedToken accessToken = accessTokenService.issue(result.email());
         return ResponseEntity.ok(new AdminSessionResponse(result.email(), accessToken.value(),
                 accessToken.expiresAtEpochSeconds()));
+    }
+
+    /**
+     * Exchanges explicit administrator credentials for a short-lived bearer token without
+     * creating a cookie-backed session. This endpoint exists for the Chrome extension, whose
+     * origin cannot participate in the storefront's same-site CSRF cookie flow.
+     */
+    @PostMapping("/token")
+    public ResponseEntity<?> token(@Valid @RequestBody AdminLoginRequest login,
+                                   HttpServletRequest request) {
+        String clientIp = request.getRemoteAddr();
+        AdminAuthenticator.AuthenticationResult result = adminAuthenticator.authenticate(login, clientIp);
+        if (!result.authenticated()) {
+            return authenticationFailure(result, clientIp, "token da extensao");
+        }
+
+        LOG.info("Admin extension token issued: ip={}", clientIp);
+        AdminAccessTokenService.IssuedToken accessToken = accessTokenService.issue(result.email());
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .body(new AdminTokenResponse(accessToken.value(), accessToken.expiresAtEpochSeconds()));
     }
 
     @GetMapping("/session")
@@ -117,5 +132,19 @@ public class AdminAuthController {
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private ResponseEntity<?> authenticationFailure(AdminAuthenticator.AuthenticationResult result,
+                                                     String clientIp, String flow) {
+        if (result.rateLimited()) {
+            LOG.warn("Admin authentication rate limited: flow={} ip={}", flow, clientIp);
+            return ResponseEntity.status(429)
+                    .header(HttpHeaders.RETRY_AFTER, Long.toString(result.retryAfterSeconds()))
+                    .body(Map.of("message", "Muitas tentativas. Tente novamente mais tarde."));
+        }
+
+        applyBackoff(result.delayMillis());
+        LOG.warn("Admin authentication failed: flow={} ip={}", flow, clientIp);
+        return ResponseEntity.status(401).body(Map.of("message", "Credenciais invalidas."));
     }
 }

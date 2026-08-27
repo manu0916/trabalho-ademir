@@ -1,0 +1,320 @@
+.customer-account-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: .55rem;
+}
+
+.customer-account-logout {
+  min-height: 2.65rem;
+  padding: .55rem .85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, .72);
+  font-size: .74rem;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: border-color var(--motion-fast), background var(--motion-fast), transform var(--motion-fast);
+}
+
+.customer-account-logout:hover:not(:disabled) {
+  border-color: var(--coral);
+  background: var(--coral-soft);
+  transform: translateY(-1px);
+}
+
+.customer-account-logout:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.customer-order-history {
+  min-width: 0;
+}
+
+.customer-order-count {
+  flex: 0 0 auto;
+  padding: .38rem .65rem;
+  border-radius: 999px;
+  color: var(--link);
+  background: var(--sky-soft);
+  font-size: .68rem;
+  font-weight: 850;
+}
+
+.customer-orders-loading {
+  min-height: 12rem;
+}
+
+.customer-orders-empty {
+  margin-top: 1.4rem;
+}
+
+.customer-orders-empty > span {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: 0 auto .75rem;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ink);
+  background: white;
+  font-weight: 900;
+}
+
+.customer-orders-empty h4 {
+  margin: 0;
+  font: 800 1.2rem var(--font-display);
+}
+
+.customer-orders-list {
+  display: grid;
+  gap: 1rem;
+  margin: 1.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.customer-order-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: var(--shadow-sm);
+}
+
+.customer-order-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(125deg, var(--canvas), var(--sky-soft));
+}
+
+.customer-order-number {
+  margin: 0 0 .15rem;
+  color: var(--ink-muted);
+  font-size: .64rem;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.customer-order-card-header h4 {
+  margin: 0;
+  color: var(--ink);
+  font: 900 1.25rem var(--font-display);
+  letter-spacing: -.025em;
+}
+
+.customer-order-card-header time,
+.customer-order-date {
+  display: block;
+  margin-top: .2rem;
+  color: var(--ink-muted);
+  font-size: .7rem;
+}
+
+.customer-order-summary {
+  display: grid;
+  justify-items: end;
+  gap: .5rem;
+  text-align: right;
+}
+
+.customer-order-summary > strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.customer-order-status {
+  display: inline-flex;
+  min-height: 1.8rem;
+  align-items: center;
+  padding: .3rem .58rem;
+  border-radius: 999px;
+  font-size: .64rem;
+  font-weight: 850;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.customer-order-status.is-success {
+  color: var(--success);
+  background: var(--mint-soft);
+}
+
+.customer-order-status.is-pending {
+  color: var(--warning);
+  background: var(--sun-soft);
+}
+
+.customer-order-status.is-danger {
+  color: var(--danger);
+  background: var(--coral-soft);
+}
+
+.customer-order-status.is-neutral {
+  color: var(--ink-muted);
+  background: var(--cloud);
+}
+
+.customer-order-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .8rem 1rem;
+  margin: 0;
+  padding: 1rem;
+}
+
+.customer-order-facts div {
+  min-width: 0;
+}
+
+.customer-order-facts dt {
+  color: var(--ink-soft);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.customer-order-facts dd {
+  overflow-wrap: anywhere;
+  margin: .2rem 0 0;
+  color: var(--ink);
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.customer-order-items {
+  margin: 0 1rem 1rem;
+  padding: .85rem;
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+}
+
+.customer-order-items-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.customer-order-items-heading h5 {
+  margin: 0;
+  color: var(--ink);
+  font-size: .76rem;
+  font-weight: 850;
+}
+
+.customer-order-items-heading > span {
+  color: var(--ink-muted);
+  font-size: .67rem;
+}
+
+.customer-order-items ul {
+  display: grid;
+  gap: .65rem;
+  margin: .7rem 0 0;
+  padding: .7rem 0 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.customer-order-items li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.customer-order-items li > div {
+  min-width: 0;
+}
+
+.customer-order-items li strong,
+.customer-order-items li small {
+  display: block;
+}
+
+.customer-order-items li strong {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: .73rem;
+}
+
+.customer-order-items li small,
+.customer-order-items li > span,
+.customer-order-items-unavailable {
+  color: var(--ink-muted);
+  font-size: .67rem;
+}
+
+.customer-order-items li small {
+  margin-top: .18rem;
+}
+
+.customer-order-items li > span {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.customer-order-items-unavailable {
+  margin: .7rem 0 0;
+  padding-top: .7rem;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 53.99rem) {
+  .account-sections {
+    overflow-x: auto;
+  }
+
+  .account-sections > button {
+    min-width: 10rem;
+  }
+}
+
+@media (max-width: 39.99rem) {
+  .account-header {
+    flex-wrap: wrap;
+  }
+
+  .customer-account-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .customer-order-card-header {
+    flex-direction: column;
+  }
+
+  .customer-order-summary {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .customer-order-summary > strong {
+    justify-self: end;
+  }
+
+  .customer-order-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .customer-order-items li {
+    display: grid;
+    gap: .3rem;
+  }
+
+  .customer-order-items li > span {
+    text-align: left;
+  }
+}

@@ -7,6 +7,7 @@ import {
   paymentMethodLabel,
   paymentStatusMeta,
 } from '../services/paymentStatus';
+import KicksSun from './ui/KicksSun';
 
 const INITIAL_POLL_INTERVAL_MS = 2500;
 const MAX_POLL_INTERVAL_MS = 30_000;
@@ -307,7 +308,7 @@ export default function PaymentStatusPage({
   return (
     <main id="main-content" className="payment-return">
       <div className="payment-return-brand">
-        <img src="/kicks-store-logo.jpg" alt={storeName} className="h-9 w-9 rounded-xl object-contain shadow-sm border border-[var(--line)] bg-[var(--surface-solid)]" />
+        <KicksSun label={storeName} />
         <strong>{storeName}</strong>
       </div>
       <section className={`payment-status-card payment-status-${headlineError ? 'danger' : meta.tone}`} aria-live="polite" aria-busy={isLoading}>

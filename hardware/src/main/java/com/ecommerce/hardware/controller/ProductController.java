@@ -55,6 +55,12 @@ public class ProductController {
         return productService.updateStock(id, request);
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
+        productService.deleteProduct(id);
+        return ResponseEntity.noContent().build();
+    }
+
     @DeleteMapping
     public CatalogDeletionResponse deleteCatalog(@RequestBody(required = false) CatalogDeletionRequest request) {
         if (request == null || !ProductService.CATALOG_DELETE_CONFIRMATION.equals(request.confirmation())) {

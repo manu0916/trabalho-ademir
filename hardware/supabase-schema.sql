@@ -433,11 +433,84 @@ create table if not exists public.stock_alerts (
 create index if not exists stock_alerts_product_id_idx
   on public.stock_alerts (product_id, status);
 
+-- Storefront Footer Settings (100% customizable from backend)
+create table if not exists public.storefront_footer_settings (
+  id integer primary key default 1,
+  wordmark varchar(100) not null default 'KICKS STORE',
+  brand_tagline varchar(255) not null default 'Calce a felicidade. Viva o seu ritmo.',
+  location_title varchar(100) not null default '',
+  address_line1 varchar(255) not null default '',
+  address_line2 varchar(255) not null default '',
+  hours_title varchar(100) not null default '',
+  store_hours_line1 varchar(255) not null default '',
+  store_hours_line2 varchar(255) not null default '',
+  auth_title varchar(100) not null default '',
+  auth_badge_title varchar(255) not null default '',
+  auth_badge_detail varchar(255) not null default '',
+  nav_title varchar(100) not null default '',
+  back_to_top_text varchar(100) not null default '',
+  contact_email varchar(254) not null default '',
+  contact_phone varchar(100) not null default '',
+  cnpj_text varchar(100) not null default '',
+  instagram_handle varchar(100) not null default '',
+  cities_rail varchar(255) not null default '',
+  copyright_text varchar(255) not null default 'Todos os direitos reservados.',
+  version bigint not null default 0,
+  constraint storefront_footer_settings_singleton_check check (id = 1)
+);
+
+-- Keep database defaults truthful when this script upgrades an existing installation.
+alter table public.storefront_footer_settings alter column brand_tagline set default 'Calce a felicidade. Viva o seu ritmo.';
+alter table public.storefront_footer_settings alter column location_title set default '';
+alter table public.storefront_footer_settings alter column address_line1 set default '';
+alter table public.storefront_footer_settings alter column address_line2 set default '';
+alter table public.storefront_footer_settings alter column hours_title set default '';
+alter table public.storefront_footer_settings alter column store_hours_line1 set default '';
+alter table public.storefront_footer_settings alter column store_hours_line2 set default '';
+alter table public.storefront_footer_settings alter column auth_title set default '';
+alter table public.storefront_footer_settings alter column auth_badge_title set default '';
+alter table public.storefront_footer_settings alter column auth_badge_detail set default '';
+alter table public.storefront_footer_settings alter column nav_title set default '';
+alter table public.storefront_footer_settings alter column back_to_top_text set default '';
+alter table public.storefront_footer_settings alter column contact_email set default '';
+alter table public.storefront_footer_settings alter column contact_phone set default '';
+alter table public.storefront_footer_settings alter column cnpj_text set default '';
+alter table public.storefront_footer_settings alter column instagram_handle set default '';
+alter table public.storefront_footer_settings alter column cities_rail set default '';
+alter table public.storefront_footer_settings alter column copyright_text set default 'Todos os direitos reservados.';
+
+insert into public.storefront_footer_settings (id, version)
+values (1, 0)
+on conflict (id) do nothing;
+
+-- Remove only the exact legacy placeholders; preserve every administrator-defined value.
+update public.storefront_footer_settings
+set brand_tagline = case when brand_tagline = 'THE DEFINITIVE SNEAKER CULTURE EXPERIENCE' then 'Calce a felicidade. Viva o seu ritmo.' else brand_tagline end,
+    location_title = case when location_title = 'LOCALIZAÇÃO' then '' else location_title end,
+    address_line1 = case when address_line1 = 'Rua Oscar Freire, 1024' then '' else address_line1 end,
+    address_line2 = case when address_line2 = 'Jardins • São Paulo, SP' then '' else address_line2 end,
+    hours_title = case when hours_title = 'HORÁRIO DE ATENDIMENTO' then '' else hours_title end,
+    store_hours_line1 = case when store_hours_line1 = 'Seg - Sáb: 10h às 20h' then '' else store_hours_line1 end,
+    store_hours_line2 = case when store_hours_line2 = 'Domingos: 12h às 18h' then '' else store_hours_line2 end,
+    auth_title = case when auth_title = 'GARANTIA DE AUTENTICIDADE' then '' else auth_title end,
+    auth_badge_title = case when auth_badge_title = 'Autenticação Física 100%' then '' else auth_badge_title end,
+    auth_badge_detail = case when auth_badge_detail = 'Lacre de Segurança Blindado' then '' else auth_badge_detail end,
+    nav_title = case when nav_title = 'NAVEGAÇÃO' then '' else nav_title end,
+    back_to_top_text = case when back_to_top_text = 'Voltar ao Topo ↑' then '' else back_to_top_text end,
+    contact_email = case when contact_email = 'contato@kicksstore.com.br' then '' else contact_email end,
+    contact_phone = case when contact_phone = '(11) 99152-6318' then '' else contact_phone end,
+    cnpj_text = case when cnpj_text = 'CNPJ: 12.345.678/0001-90' then '' else cnpj_text end,
+    instagram_handle = case when instagram_handle = '@kicksstore_oficial' then '' else instagram_handle end,
+    cities_rail = case when cities_rail = 'TOKYO • SÃO PAULO • NEW YORK • LONDON' then '' else cities_rail end,
+    copyright_text = case when copyright_text = 'TODOS OS DIREITOS RESERVADOS.' then 'Todos os direitos reservados.' else copyright_text end
+where id = 1;
+
 -- The browser never talks to Supabase directly. Keep PII and password hashes outside the Data API.
 alter table public.products enable row level security;
 alter table public.product_images enable row level security;
 alter table public.storefront_hero_settings enable row level security;
 alter table public.storefront_hero_images enable row level security;
+alter table public.storefront_footer_settings enable row level security;
 alter table public.customer_accounts enable row level security;
 alter table public.customer_addresses enable row level security;
 alter table public.purchase_orders enable row level security;
@@ -453,6 +526,7 @@ alter table public.payment_refunds enable row level security;
 alter table public.payment_disputes enable row level security;
 revoke all on table public.products, public.product_images,
   public.storefront_hero_settings, public.storefront_hero_images,
+  public.storefront_footer_settings,
   public.customer_accounts, public.customer_addresses, public.purchase_orders,
   public.purchase_order_items, public.store_reviews, public.product_reviews,
   public.support_messages, public.discount_coupons, public.stock_alerts,

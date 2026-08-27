@@ -27,6 +27,8 @@ import java.util.Arrays;
 import java.util.Base64;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -117,6 +119,38 @@ class ProductGalleryIntegrationTests {
     }
 
     @Test
+    void extensionUploadPersistsAndServesWebpWithItsDetectedMediaType() throws Exception {
+        MvcResult tokenResult = mockMvc.perform(post("/api/admin/auth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@example.test\",\"password\":\"password1234\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String token = JsonMapper.shared().readTree(tokenResult.getResponse().getContentAsString())
+                .path("accessToken").asText();
+
+        MvcResult created = mockMvc.perform(multipart("/api/products")
+                        .file(productPart("WebP da extensão"))
+                        .file(webp("images", "shoe-image-1.webp"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.images.length()").value(1))
+                .andReturn();
+
+        JsonNode body = JsonMapper.shared().readTree(created.getResponse().getContentAsString());
+        String imageUrl = body.path("images").get(0).path("imageUrl").asText();
+        mockMvc.perform(get(imageUrl))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.parseMediaType("image/webp")))
+                .andExpect(content().bytes(ONE_PIXEL_WEBP));
+
+        var storedImage = imageRepository.findAll().getFirst();
+        assertEquals("image/webp", storedImage.getContentType());
+        assertEquals(ONE_PIXEL_WEBP.length, storedImage.getByteSize());
+        assertArrayEquals(ONE_PIXEL_WEBP,
+                Base64.getDecoder().decode(storedImage.getImageBase64()));
+    }
+
+    @Test
     void multipartCreationAcceptsOneThroughEightImagesAndRejectsNine() throws Exception {
         mockMvc.perform(multipart("/api/products")
                         .file(productPart("Sem imagem"))
@@ -203,6 +237,27 @@ class ProductGalleryIntegrationTests {
     }
 
     @Test
+    void browserLocalDataAndBlobUrlsAreNotPersistedAsPublicProductUrls() throws Exception {
+        String[] browserLocalUrls = {
+                "data:image/webp;base64,UklGRiIAAABXRUJQ",
+                "blob:https://shop.example/218a1b26-33a8-4aa2-91ef-faa8dce18204"
+        };
+
+        for (String imageUrl : browserLocalUrls) {
+            String body = "{\"name\":\"URL local\",\"category\":\"Basquete\",\"price\":99.90,"
+                    + "\"stockQuantity\":2,\"imageUrl\":\"" + imageUrl + "\"}";
+            mockMvc.perform(post("/api/products")
+                            .header(HttpHeaders.AUTHORIZATION, bearer())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest());
+        }
+
+        assertEquals(0, productRepository.count());
+        assertEquals(0, imageRepository.count());
+    }
+
+    @Test
     void multipartCreationCanonicalizesSportsCategoriesAndRejectsUnknownOnes() throws Exception {
         mockMvc.perform(multipart("/api/products")
                         .file(productPart("Categoria inválida", "Tênis"))
@@ -246,6 +301,43 @@ class ProductGalleryIntegrationTests {
                                 + "\"stockQuantity\":2,\"imageUrl\":\"https://example.com/historical.png\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.category").value("Corrida"));
+    }
+
+    @Test
+    void deleteProduct_whenAuthenticated_deletesProductAndImages() throws Exception {
+        MvcResult created = mockMvc.perform(multipart("/api/products")
+                        .file(productPart("Tênis para Excluir"))
+                        .file(webp("images", "foto1.webp"))
+                        .file(webp("images", "foto2.webp"))
+                        .header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        JsonNode body = JsonMapper.builder().build().readTree(created.getResponse().getContentAsString());
+        long productId = body.get("id").asLong();
+
+        assertEquals(1, productRepository.count());
+        assertEquals(2, imageRepository.count());
+
+        mockMvc.perform(delete("/api/products/" + productId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isNoContent());
+
+        assertEquals(0, productRepository.count());
+        assertEquals(0, imageRepository.count());
+    }
+
+    @Test
+    void deleteProduct_whenUnauthenticated_returnsForbidden() throws Exception {
+        mockMvc.perform(delete("/api/products/999"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void deleteProduct_whenNotFound_returnsNotFound() throws Exception {
+        mockMvc.perform(delete("/api/products/99999")
+                        .header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isNotFound());
     }
 
     private String bearer() {

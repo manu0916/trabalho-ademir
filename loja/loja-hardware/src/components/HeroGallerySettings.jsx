@@ -8,17 +8,24 @@ const MAX_IMAGES = 8;
 const MAX_ALT_TEXT_LENGTH = 160;
 const INTERVAL_OPTIONS = Array.from({ length: 28 }, (_, index) => index + 3);
 
+const DEFAULT_HERO_SETTINGS = {
+  mode: 'PRODUCTS',
+  intervalSeconds: 5,
+  manualImages: [],
+};
+
 export default function HeroGallerySettings({
-  settings,
-  products,
+  settings = DEFAULT_HERO_SETTINGS,
+  products = [],
   settingsError,
   onSave,
   onUpload,
   onDelete,
 }) {
-  const [mode, setMode] = useState(settings.mode);
-  const [intervalSeconds, setIntervalSeconds] = useState(settings.intervalSeconds);
-  const [manualImages, setManualImages] = useState(settings.manualImages);
+  const safeSettings = settings || DEFAULT_HERO_SETTINGS;
+  const [mode, setMode] = useState(safeSettings.mode || 'PRODUCTS');
+  const [intervalSeconds, setIntervalSeconds] = useState(safeSettings.intervalSeconds || 5);
+  const [manualImages, setManualImages] = useState(safeSettings.manualImages || []);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [deletingImageId, setDeletingImageId] = useState(null);
@@ -27,16 +34,18 @@ export default function HeroGallerySettings({
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    setMode(settings.mode);
-    setIntervalSeconds(settings.intervalSeconds);
-    setManualImages(settings.manualImages);
+    if (settings) {
+      setMode(settings.mode || 'PRODUCTS');
+      setIntervalSeconds(settings.intervalSeconds || 5);
+      setManualImages(settings.manualImages || []);
+    }
   }, [settings]);
 
   const eligibleProducts = useMemo(() => (
-    products.filter((product) => product.stockQuantity > 0 && getProductImages(product).length > 0).slice(0, 12)
+    (products || []).filter((product) => product.stockQuantity > 0 && getProductImages(product).length > 0).slice(0, 12)
   ), [products]);
 
-  const publishedSignature = settingsSignature(settings);
+  const publishedSignature = settingsSignature(safeSettings);
   const draftSignature = settingsSignature({ mode, intervalSeconds, manualImages });
   const hasUnsavedChanges = publishedSignature !== draftSignature;
   const isMutating = isSaving || isUploading || deletingImageId !== null;
@@ -188,7 +197,7 @@ export default function HeroGallerySettings({
       )}
 
       <div className="hero-manual-heading mt-7">
-        <div><h3>Fotos enviadas</h3><p>JPG, PNG ou WebP. Até {MAX_IMAGES} fotos; o sistema otimiza arquivos grandes antes do envio.</p></div>
+        <div><h3>Fotos enviadas</h3><p>JPG, PNG ou WebP. Até {MAX_IMAGES} fotos; o sistema converte e otimiza tudo em WebP antes do envio.</p></div>
         <button type="button" disabled={isMutating || manualImages.length >= MAX_IMAGES} onClick={openFilePicker} className="admin-primary hero-upload-button cursor-pointer rounded-xl px-5 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50">{isUploading ? 'Enviando...' : 'Adicionar fotos'}</button>
         <input ref={fileInputRef} type="file" multiple accept={IMAGE_FILE_ACCEPT} tabIndex={-1} onChange={handleFiles} className="sr-only" />
       </div>
@@ -231,9 +240,9 @@ const inputClass = 'admin-input w-full rounded-xl px-4 py-2.5 text-sm outline-no
 
 function settingsSignature(settings) {
   return JSON.stringify({
-    mode: settings.mode,
-    intervalSeconds: Number(settings.intervalSeconds),
-    manualImages: (settings.manualImages || []).map((image) => ({ id: image.id, altText: image.altText || '' })),
+    mode: settings?.mode || 'PRODUCTS',
+    intervalSeconds: Number(settings?.intervalSeconds || 5),
+    manualImages: (settings?.manualImages || []).map((image) => ({ id: image.id, altText: image.altText || '' })),
   });
 }
 

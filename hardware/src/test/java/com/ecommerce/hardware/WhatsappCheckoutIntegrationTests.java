@@ -353,7 +353,7 @@ class WhatsappCheckoutIntegrationTests {
 
         String adminToken = loginAdmin();
 
-        // Cancel order via admin endpoint
+        // Cancel order via admin endpoint.
         mockMvc.perform(post("/api/admin/orders/" + orderId + "/cancel-whatsapp-order")
                         .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
@@ -363,8 +363,15 @@ class WhatsappCheckoutIntegrationTests {
         assertEquals(PaymentStatus.PAYMENT_CANCELED, updated.getStatus());
         assertEquals(InventoryStatus.RELEASED, updated.getInventoryStatus());
 
-        // Stock was released in the database
-        assertEquals(6, products.findById(product.getId()).orElseThrow().getStockQuantity() + 2);
+        // The two reserved units were restored exactly.
+        assertEquals(6, products.findById(product.getId()).orElseThrow().getStockQuantity());
+
+        // Retrying the same terminal transition is idempotent and cannot restore twice.
+        mockMvc.perform(post("/api/admin/orders/" + orderId + "/cancel-whatsapp-order")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAYMENT_CANCELED"));
+        assertEquals(6, products.findById(product.getId()).orElseThrow().getStockQuantity());
     }
 
     // ── 10. Authentication and ownership checks ───────────────────────────────
@@ -431,6 +438,7 @@ class WhatsappCheckoutIntegrationTests {
 
         long orderId = json(checkout).path("orderId").asLong();
         PurchaseOrder order = orders.findById(orderId).orElseThrow();
+        assertEquals(3, products.findById(product.getId()).orElseThrow().getStockQuantity());
 
         // Force expiry timestamp into the past (2 hours ago)
         order.setupWhatsappOrder(order.getWhatsappUrl(), Instant.now().minus(2, ChronoUnit.HOURS));
@@ -442,6 +450,11 @@ class WhatsappCheckoutIntegrationTests {
         PurchaseOrder expired = orders.findById(orderId).orElseThrow();
         assertEquals(PaymentStatus.PAYMENT_CANCELED, expired.getStatus());
         assertEquals(InventoryStatus.RELEASED, expired.getInventoryStatus());
+        assertEquals(5, products.findById(product.getId()).orElseThrow().getStockQuantity());
+
+        // A repeated scheduler pass cannot restore the same reservation twice.
+        whatsappCheckoutService.expireStaleWhatsappOrders();
+        assertEquals(5, products.findById(product.getId()).orElseThrow().getStockQuantity());
     }
 
     // ── Test helpers ──────────────────────────────────────────────────────────

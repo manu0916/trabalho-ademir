@@ -1,15 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Kicks Store — Sneaker Importer",
-  "version": "1.0.0",
-  "description": "Escaneie tênis, fotos em alta resolução e envie diretamente para o catálogo da Kicks Store.",
+  "version": "1.2.0",
+  "description": "Escaneie tênis, separe as cores, traduza nomes chineses, converta as fotos para WebP e envie para a Kicks Store.",
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "unlimitedStorage"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "http://*/*",
+    "https://*/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -29,5 +31,8 @@
   },
   "background": {
     "service_worker": "background.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
   }
 }

@@ -1,123 +1,146 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import StarRating from './StarRating';
 import StoreReviewModal from './StoreReviewModal';
 import { fetchStoreReviews } from '../services/api';
 
+const EMPTY_REVIEWS = {
+  reviews: [],
+  averageRating: 0,
+  totalCount: 0,
+};
+
+function normalizeReviews(data) {
+  const reviews = Array.isArray(data?.reviews) ? data.reviews : [];
+  const averageRating = Number(data?.averageRating);
+  const totalCount = Number(data?.totalCount);
+
+  return {
+    reviews,
+    averageRating: Number.isFinite(averageRating) ? averageRating : 0,
+    totalCount: Number.isFinite(totalCount) ? totalCount : reviews.length,
+  };
+}
+
 export default function StoreReviewsSection({ customerSession, onOpenLogin }) {
-  const [reviewsData, setReviewsData] = useState({ reviews: [], averageRating: 5.0, totalCount: 0 });
+  const [reviewsData, setReviewsData] = useState(EMPTY_REVIEWS);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const loadReviews = () => {
-    fetchStoreReviews()
-      .then((data) => {
-        if (data) setReviewsData(data);
+  const loadReviews = useCallback(() => {
+    setIsLoading(true);
+    setError('');
+
+    return fetchStoreReviews()
+      .then((data) => setReviewsData(normalizeReviews(data)))
+      .catch((requestError) => {
+        setReviewsData(EMPTY_REVIEWS);
+        setError(requestError.message || 'Não foi possível carregar as avaliações agora.');
       })
-      .catch(() => {})
       .finally(() => setIsLoading(false));
-  };
+  }, []);
 
   useEffect(() => {
     loadReviews();
-  }, []);
+  }, [loadReviews]);
 
   const { reviews, averageRating, totalCount } = reviewsData;
 
   return (
     <section id="reviews" className="store-reviews-section mx-auto max-w-[90rem] px-5 py-16 sm:px-8 sm:py-24 border-t border-[var(--line)]">
-      <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end mb-12">
+      <div className="mb-12 flex flex-col justify-between gap-6 md:flex-row md:items-end">
         <div>
-          <p className="section-kicker">Comunidade & Transparência</p>
-          <h2 className="section-title mt-1">O que dizem sobre a Kicks Store</h2>
+          <p className="section-kicker text-xs font-black uppercase tracking-widest text-[var(--accent-strong)]">
+            Avaliações da loja
+          </p>
+          <h2 className="section-title mt-1 text-3xl font-black sm:text-4xl lg:text-5xl">
+            Experiências publicadas
+          </h2>
           <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-            Avaliações 100% autênticas de clientes reais com compras verificadas e aprovadas.
+            Esta área mostra somente as avaliações retornadas pelo serviço da loja.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-3 bg-[var(--surface-solid)] px-5 py-3 rounded-2xl border border-[var(--line)] shadow-sm">
-            <span className="text-3xl font-black text-[var(--text)]">{Number(averageRating).toFixed(1)}</span>
-            <div>
-              <StarRating rating={Math.round(averageRating)} readOnly size="sm" />
-              <span className="text-[11px] text-[var(--muted)] block mt-0.5">
-                {totalCount} {totalCount === 1 ? 'avaliação' : 'avaliações'}
-              </span>
+          {totalCount > 0 && (
+            <div className="flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface-solid)] px-5 py-3 shadow-xl">
+              <span className="text-3xl font-black text-[var(--text)]">{averageRating.toFixed(1)}</span>
+              <div>
+                <StarRating rating={Math.round(averageRating)} readOnly size="sm" />
+                <span className="mt-0.5 block text-[11px] font-bold text-[var(--muted)]">
+                  {totalCount} {totalCount === 1 ? 'avaliação publicada' : 'avaliações publicadas'}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           <motion.button
             type="button"
             whileTap={{ scale: 0.96 }}
             onClick={() => setIsModalOpen(true)}
-            className="buy-button cursor-pointer rounded-2xl px-5 py-3 text-sm font-bold shadow-lg"
+            className="buy-button cursor-pointer rounded-2xl px-6 py-3.5 text-xs font-black uppercase tracking-wider shadow-xl"
           >
-            ★ Avaliar a Loja
+            Escrever avaliação
           </motion.button>
         </div>
       </div>
 
       {isLoading ? (
-        <div className="py-16 text-center text-sm text-[var(--muted)]">
-          <span className="inline-block animate-spin mr-2">◌</span>
-          Carregando avaliações...
+        <p className="rounded-3xl border border-[var(--line)] bg-[var(--surface-solid)] p-8 text-center text-sm text-[var(--muted)]" role="status">
+          Carregando avaliações…
+        </p>
+      ) : error ? (
+        <div className="rounded-3xl border border-[var(--line)] bg-[var(--surface-solid)] p-8 text-center" role="alert">
+          <p className="text-sm text-[var(--muted)]">{error}</p>
+          <button type="button" className="button button-secondary mt-4" onClick={loadReviews}>Tentar novamente</button>
         </div>
-      ) : reviews.length === 0 ? (
-        <div className="rounded-3xl bg-[var(--surface-solid)] p-12 text-center border border-[var(--line)]">
-          <span className="text-4xl mb-3 block">⭐</span>
-          <h3 className="text-lg font-bold text-[var(--text)]">Seja o primeiro a avaliar a Kicks Store!</h3>
-          <p className="mt-1 max-w-md mx-auto text-xs text-[var(--muted)]">
-            Se você já concluiu uma compra com pagamento aprovado, compartilhe sua experiência com a nossa comunidade.
-          </p>
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="buy-button mt-5 inline-block px-6 py-2.5 rounded-xl text-xs font-bold"
-          >
-            Escrever Avaliação
-          </button>
-        </div>
-      ) : (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {reviews.map((review, idx) => (
+      ) : reviews.length > 0 ? (
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {reviews.map((review, index) => (
             <motion.article
-              key={review.id || idx}
+              key={review.id || index}
               initial={{ opacity: 0, y: 16 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.1 }}
-              transition={{ duration: 0.35, delay: Math.min(idx * 0.05, 0.25) }}
-              className="flex flex-col justify-between rounded-2xl bg-[var(--surface-solid)] p-5 border border-[var(--line)] hover:border-[var(--accent)]/40 transition-colors shadow-sm"
+              transition={{ duration: 0.35, delay: Math.min(index * 0.05, 0.25) }}
+              className="flex flex-col justify-between rounded-3xl border border-[var(--line)] bg-[var(--surface-solid)] p-6 shadow-xl transition-all hover:-translate-y-1 hover:border-[var(--accent-strong)]/40"
             >
               <div>
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <StarRating rating={review.rating} readOnly size="sm" />
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                    ✓ Comprador Verificado
-                  </span>
-                </div>
-                <p className="text-sm leading-relaxed text-[var(--text)] whitespace-pre-line">
+                <StarRating rating={review.rating} readOnly size="sm" />
+                {review.productBought && (
+                  <p className="mt-3 inline-block rounded-lg bg-[var(--surface-raised)] px-2.5 py-1 text-[11px] font-bold text-[var(--accent-strong)]">
+                    Produto informado: {review.productBought}
+                  </p>
+                )}
+                <p className="mt-3 whitespace-pre-line text-xs leading-relaxed text-[var(--text)] sm:text-sm">
                   “{review.comment}”
                 </p>
               </div>
 
-              <div className="mt-5 pt-3 border-t border-[var(--line)] flex items-center justify-between text-xs text-[var(--muted)]">
-                <span className="font-semibold text-[var(--text)]">{review.authorName}</span>
-                <span>
-                  {review.createdAt ? new Date(review.createdAt).toLocaleDateString('pt-BR') : 'Recente'}
-                </span>
-              </div>
+              <footer className="mt-6 flex items-center justify-between border-t border-[var(--line)] pt-4 text-xs text-[var(--muted)]">
+                <div>
+                  <strong className="block font-black text-[var(--text)]">{review.customerName || 'Cliente'}</strong>
+                  {review.city && <span className="text-[11px]">{review.city}</span>}
+                </div>
+                {review.date && <time className="text-[10px] font-mono opacity-60">{review.date}</time>}
+              </footer>
             </motion.article>
           ))}
         </div>
+      ) : (
+        <div className="rounded-3xl border border-[var(--line)] bg-[var(--surface-solid)] p-8 text-center" role="status">
+          <h3 className="text-xl font-black text-[var(--text)]">Nenhuma avaliação publicada ainda.</h3>
+          <p className="mt-2 text-sm text-[var(--muted)]">Quando o serviço retornar uma avaliação, ela aparecerá aqui.</p>
+        </div>
       )}
 
-      {/* Evaluation Modal */}
       <StoreReviewModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onReviewSubmitted={loadReviews}
         customerSession={customerSession}
         onOpenLogin={onOpenLogin}
+        onReviewSubmitted={loadReviews}
       />
     </section>
   );

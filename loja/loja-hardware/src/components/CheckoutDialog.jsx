@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ShoppingBag } from 'lucide-react';
 import {
   createPaymentCheckout,
   fetchCustomerAccount,
@@ -6,6 +7,7 @@ import {
 import CustomerAddressFields from './CustomerAddressFields';
 import { addressPayload, addressToForm, EMPTY_CUSTOMER_ADDRESS, formatCep, formatCpf, isAddressComplete, onlyDigits } from '../utils/customerAddress';
 import useModalAccessibility from '../hooks/useModalAccessibility';
+import SafeImage from './ui/SafeImage';
 import {
   beginCheckoutAttempt,
   discardCheckoutAttempt,
@@ -46,7 +48,6 @@ export default function CheckoutDialog({
   onManageAccount,
   initialDraft = null,
   onDraftChange,
-  appliedCoupon,
 }) {
   const initialDraftRef = useRef(initialDraft);
   const [account, setAccount] = useState(null);
@@ -60,12 +61,10 @@ export default function CheckoutDialog({
   const [accountLoadAttempt, setAccountLoadAttempt] = useState(0);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // State shown after a successful order creation when the redirect was blocked
-  const [whatsappFallback, setWhatsappFallback] = useState(null);
+  const [createdOrder, setCreatedOrder] = useState(null);
   const total = useMemo(() => cartItems.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0), [cartItems]);
-  const discountAmount = appliedCoupon?.discountAmount ? Number(appliedCoupon.discountAmount) : 0;
-  const finalTotal = Math.max(0, total - discountAmount);
   const fullNameRef = useRef(null);
+  const errorRef = useRef(null);
   const closeButtonRef = useRef(null);
   const dialogRef = useRef(null);
   const submissionInProgressRef = useRef(false);
@@ -76,6 +75,11 @@ export default function CheckoutDialog({
     if (!isOpen) return;
     onDraftChange?.(latestDraftRef.current);
   }, [addressMode, isOpen, newAddress, onDraftChange, personalForm, saveNewAddress, selectedAddressId]);
+
+  useEffect(() => {
+    if (!error) return;
+    window.requestAnimationFrame(() => errorRef.current?.focus());
+  }, [error]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -146,7 +150,7 @@ export default function CheckoutDialog({
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
-    if (submissionInProgressRef.current) return;
+    if (submissionInProgressRef.current || createdOrder) return;
     if (isLoadingAccount) return setError('Aguarde o carregamento dos dados da sua conta.');
     if (accountLoadError) return setError('Recarregue os dados da sua conta antes de continuar.');
     if (!account?.profile && !isValidCpf(personalForm.cpf)) return setError('Informe um CPF válido para salvar seus dados pessoais.');
@@ -156,8 +160,8 @@ export default function CheckoutDialog({
     const items = cartItems.map((item) => ({
       productId: item.id,
       quantity: item.quantity,
-      shoeSize: item.selectedSize || '40',
-      colorVariant: item.selectedColor || 'Original Edition',
+      shoeSize: item.selectedSize || null,
+      colorVariant: item.selectedColor || null,
     }));
     let attempt;
     try {
@@ -205,15 +209,7 @@ export default function CheckoutDialog({
       if (!rememberPendingCheckout(checkout.orderId, attempt.items, attempt.idempotencyKey)) {
         throw new Error('O pedido foi criado, mas não foi possível guardar sua referência. Mantenha esta janela aberta e tente novamente.');
       }
-      // Redirect to WhatsApp. If the browser blocks the navigation (pop-up blocker, etc.)
-      // show a fallback with the link so the customer can still complete the purchase.
-      try {
-        window.location.assign(checkout.whatsappUrl);
-      } catch {
-        setWhatsappFallback({ orderId: checkout.orderId, whatsappUrl: checkout.whatsappUrl });
-        setIsSubmitting(false);
-        submissionInProgressRef.current = false;
-      }
+      setCreatedOrder({ orderId: checkout.orderId, whatsappUrl: checkout.whatsappUrl });
     } catch (requestError) {
       if (isAuthenticationError(requestError)) {
         onAuthenticationRequired?.(latestDraftRef.current);
@@ -234,9 +230,9 @@ export default function CheckoutDialog({
       <div ref={dialogRef} tabIndex="-1" aria-busy={isLoadingAccount || isSubmitting} role="dialog" aria-modal="true" aria-labelledby="checkout-title" aria-describedby="checkout-description" className="checkout-dialog mx-auto my-4 w-full max-w-5xl rounded-3xl p-5 shadow-2xl sm:my-6 sm:p-8">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="section-kicker">Finalizar compra</p>
-            <h2 id="checkout-title" className="mt-1 text-2xl font-black text-[var(--text)]">Seus dados e entrega</h2>
-            <p id="checkout-description" className="mt-1 text-sm text-[var(--muted)]">Use o que já está salvo ou cadastre uma nova entrega.</p>
+            <p className="section-kicker">Último passo antes do seu novo par</p>
+            <h2 id="checkout-title" className="mt-1 text-2xl font-black text-[var(--text)]">Dados claros. Compra tranquila.</h2>
+            <p id="checkout-description" className="mt-1 text-sm text-[var(--muted)]">Revise seus dados, escolha a entrega e crie o pedido para continuar pelo WhatsApp.</p>
           </div>
           <button ref={closeButtonRef} type="button" onClick={handleClose} disabled={isSubmitting} className="close-checkout text-2xl disabled:cursor-wait disabled:opacity-40" aria-label="Fechar checkout">×</button>
         </div>
@@ -325,37 +321,32 @@ export default function CheckoutDialog({
 
           <aside className="checkout-summary">
             <div><p className="checkout-legend">Sua seleção</p><p className="mt-2 text-sm text-[var(--muted)]">{cartItems.reduce((sum, item) => sum + item.quantity, 0)} itens preparados para você.</p></div>
-            <div className="checkout-items">{cartItems.map((item) => <div className="checkout-item" key={item.id}><img src={item.imageUrl} alt="" loading="lazy" decoding="async" /><div><strong>{item.name}</strong><small>{item.quantity}× · R$ {Number(item.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</small></div></div>)}</div>
+            <div className="checkout-items">{cartItems.map((item) => <div className="checkout-item" key={item.cartKey || item.id}><SafeImage src={item.imageUrl} alt="" loading="lazy" decoding="async" fallback={<span className="checkout-item-image-fallback" aria-hidden="true"><ShoppingBag /></span>} /><div><strong>{item.name}</strong><small>{item.quantity}× · R$ {Number(item.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</small></div></div>)}</div>
             <div className="checkout-total space-y-1.5 rounded-2xl p-4 text-sm bg-[var(--surface-solid)] border border-[var(--line)]">
               <div className="flex items-center justify-between text-xs text-[var(--muted)]">
                 <span>Subtotal</span>
                 <span>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
               </div>
-              {appliedCoupon && (
-                <div className="flex items-center justify-between text-xs text-emerald-500 font-semibold">
-                  <span>Desconto ({appliedCoupon.code})</span>
-                  <span>- R$ {discountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                </div>
-              )}
               <div className="flex items-center justify-between pt-1.5 border-t border-[var(--line)]">
-                <span className="font-bold text-[var(--text)]">Total Final</span>
-                <strong className="text-lg text-[var(--accent)]">R$ {finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                <span className="font-bold text-[var(--text)]">Total dos produtos</span>
+                <strong className="text-lg text-[var(--accent)]">R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
               </div>
             </div>
-            {whatsappFallback && (
-              <div role="alert" className="checkout-whatsapp-fallback rounded-2xl p-4 text-sm" style={{background:'var(--surface-elevated)',border:'1px solid var(--border)'}}>
-                <p className="font-semibold text-[var(--text)]">Pedido #{whatsappFallback.orderId} criado com sucesso!</p>
-                <p className="mt-1 text-[var(--muted)]">O redirecionamento automático foi bloqueado. Clique no botão abaixo para abrir o WhatsApp.</p>
-                <a href={whatsappFallback.whatsappUrl} target="_blank" rel="noopener noreferrer" className="admin-primary mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 font-semibold no-underline">Abrir WhatsApp para combinar o pagamento</a>
+            {createdOrder && (
+              <div role="status" aria-live="polite" className="checkout-whatsapp-fallback rounded-2xl p-4 text-sm">
+                <p className="font-semibold text-[var(--text)]">Pedido #{createdOrder.orderId} registrado.</p>
+                <p className="mt-1 text-[var(--muted)]">O pagamento ainda está pendente. Abra o WhatsApp para continuar e acompanhe a confirmação sem perder esta referência.</p>
+                <a href={createdOrder.whatsappUrl} target="_blank" rel="noopener noreferrer" className="admin-primary mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 font-semibold no-underline">Abrir WhatsApp</a>
+                <a href={`/pagamento/pendente?order_id=${encodeURIComponent(createdOrder.orderId)}`} className="button button-secondary mt-2 inline-flex w-full items-center justify-center">Acompanhar pedido</a>
               </div>
             )}
-            {error && <p role="alert" aria-live="polite" className="text-sm text-rose-500">{error}</p>}
-            <button disabled={isSubmitting || isLoadingAccount || Boolean(accountLoadError)} className="admin-primary w-full cursor-pointer rounded-xl py-3 font-semibold disabled:cursor-wait disabled:opacity-60">
-              {isSubmitting ? 'Criando pedido...' : isLoadingAccount ? 'Carregando seus dados...' : accountLoadError ? 'Recarregue os dados da conta' : (
+            {error && <p ref={errorRef} tabIndex="-1" role="alert" aria-live="assertive" className="checkout-error-message">{error}</p>}
+            <button disabled={isSubmitting || isLoadingAccount || Boolean(accountLoadError) || Boolean(createdOrder)} className="admin-primary w-full cursor-pointer rounded-xl py-3 font-semibold disabled:cursor-wait disabled:opacity-60">
+              {createdOrder ? 'Pedido já registrado' : isSubmitting ? 'Criando pedido...' : isLoadingAccount ? 'Carregando seus dados...' : accountLoadError ? 'Recarregue os dados da conta' : (
                 <span className="flex items-center justify-center gap-2"><span aria-hidden="true">💬</span> Finalizar pelo WhatsApp</span>
               )}
             </button>
-            <p className="checkout-security"><span aria-hidden="true">✓</span> Pedido registrado com segurança. Combine o pagamento diretamente pelo WhatsApp.</p>
+            <p className="checkout-security"><span aria-hidden="true">✓</span> O pedido é registrado primeiro; o status só muda após confirmação real do pagamento.</p>
           </aside>
         </form>
       </div>

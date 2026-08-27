@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /pagamento/
+Disallow: /api/
+
+Sitemap: https://trabalho-ademir.vercel.app/sitemap.xml

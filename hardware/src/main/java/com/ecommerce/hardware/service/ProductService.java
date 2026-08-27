@@ -133,6 +133,17 @@ public class ProductService {
     }
 
     @Transactional
+    public void deleteProduct(Long id) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Produto não encontrado."));
+        reviewRepository.deleteByProductId(id);
+        imageRepository.deleteByProduct_Id(id);
+        stockAlertRepository.deleteByProductId(id);
+        productRepository.delete(product);
+    }
+
+    @Transactional
     public CatalogDeletionResult deleteCatalog() {
         long deletedProducts = productRepository.count();
         long deletedImages = imageRepository.count();

@@ -1,78 +1,103 @@
-# Design System — Loja mutável de três marcas
+# Design System — Kicks Store · Calce a felicidade
 
-## Produto e arquitetura
+## Produto, dados e arquitetura
 
-Uma única loja React/Vite assume três identidades de marca sem mudar catálogo, autenticação ou fluxos: Nexus Atelier (objetos e tecnologia), Passo Livre (tênis) e Doce Pedaço (tortinhas). A home precisa parecer uma campanha editorial de marca real; painel, carrinho e checkout devem parecer parte do mesmo universo, porém priorizando clareza operacional.
+Kicks Store é um e-commerce React/Vite de sneakers com backend Spring Boot real. A experiência deve vender alegria com sofisticação: clara, vibrante, jovem, acolhedora, editorial e premium — nunca infantil, sombria, cyberpunk ou genérica.
 
-Páginas/estados: vitrine, modal de acesso, sacola lateral, checkout, login admin e painel administrativo. Funções críticas: buscar, comprar, validar estoque, cadastrar produto, trocar tema, mudar nome da loja, ver pedidos e finalizar pagamento.
+A API é a fonte de verdade. O catálogo atual fornece apenas `id`, `name`, `category`, `price`, `stockQuantity`, `description`, `imageUrl` e `images`. Não inventar marca, SKU, desconto, popularidade, gênero, cor, tamanho, variante, estoque por variante, frete, parcelamento, avaliações, benefícios ou promessas comerciais. Filtros editoriais só podem usar palavras existentes no nome, categoria e descrição, explicando esse critério quando necessário.
 
-## Princípios obrigatórios
+Rotas existentes: home `/`, catálogo `/sneakers`, novidades `/novidades`, ofertas `/ofertas`, produto `/produto/:id`, admin `/admin`, estados de pagamento e 404. Shell compartilhado: header sticky, conteúdo, footer, overlays de busca/favoritos/sacola/conta/checkout. Autenticação, CSRF, pagamentos, estoque, pedidos, hero e footer continuam ligados às APIs existentes.
 
-1. Artesanal, editorial e assimétrico; nunca dashboard/template genérico.
-2. Hierarquia forte com respiro amplo, sobreposições controladas e ritmo variável.
-3. Cada tema é uma marca distinta, mas compartilha componentes e acessibilidade.
-4. Imagens contam a história; cards não podem parecer blocos repetidos de catálogo.
-5. Movimento físico e elegante com `cubic-bezier(.87, 0, .13, 1)` para transições de marca e `[.22, 1, .36, 1]` para entradas.
-6. Toda interação funciona com teclado, mobile e `prefers-reduced-motion`.
+## Ideia central e personalidade
+
+- Promessa: **Calce a felicidade.**
+- Sensação: alegria, energia positiva, liberdade, expressão pessoal, conforto e desejo de explorar.
+- Tom: otimista, direto, humano e elegante. Microcopy breve; poucos emojis e apenas quando agregam significado.
+- Elemento proprietário: **Sol Kicks**, um disco amarelo com raios arredondados e a letra K. Reaparece no logo, loading, empty states, feedbacks e detalhes de campanha.
+- Linguagem gráfica: verão + streetwear + editorial de moda + movimento; círculos, órbitas, sparks e ondas em baixa densidade.
+
+## Paleta funcional
+
+Base:
+
+- Canvas quente `#FFF9EC` — fundo principal.
+- Papel `#FFFFFF` — cards, formulários e superfícies elevadas.
+- Nuvem `#F3F5F7` — superfícies neutras.
+- Creme `#FFF1CF` — alternância quente de seção.
+- Ink `#17223B` — texto e controles principais.
+- Ink muted `#59647A` — texto secundário; nunca usar cinza mais claro para texto pequeno.
+
+Acentos com função:
+
+- Sunshine `#FFD84D` — CTA primário, marca e alegria.
+- Sky `#69C8FF` — informação, navegação e superfícies frescas.
+- Coral `#FF7C70` — destaque editorial e ofertas reais.
+- Mint `#78E6BD` — sucesso e confirmação.
+- Pink `#FF8EC8` — favoritos e personalidade.
+- Lavender `#BDA7FF` — novidades e campanhas especiais.
+- Lime `#C7F464` — energia pontual, nunca para texto.
+
+Sem cores aleatórias. Em qualquer viewport, limitar uma composição a canvas/papel + ink + no máximo três acentos visíveis de uma vez. Gradientes permitidos apenas em grandes superfícies decorativas, sempre claros e com texto em Ink.
 
 ## Tipografia
 
-- Corpo e UI: **DM Sans**, 400–800.
-- Display Nexus + Passo Livre: **Space Grotesk**, 500–700; tracking negativo em títulos.
-- Display Doce Pedaço: **Playfair Display**, 600–700; usar apenas títulos e citações curtas.
-- Títulos hero: `clamp(3.5rem, 7vw, 7.4rem)`, line-height `.88–.96`, letter-spacing `-.065em`.
-- Títulos de seção: `clamp(2.25rem, 4vw, 4.25rem)`.
-- Kicker: `.66–.72rem`, 800, uppercase, tracking `.15em`.
+- Display: **Bricolage Grotesque**, fallback Plus Jakarta Sans/Segoe UI. Pesos 700–800, tracking negativo suave.
+- Corpo e interface: **DM Sans**, fallback Segoe UI. Pesos 400–800.
+- Hero: `clamp(3.2rem, 7.5vw, 7.6rem)`, line-height `.88–.96`, máximo 10–12 caracteres por linha em desktop.
+- Título de seção: `clamp(2rem, 4.5vw, 4.25rem)`, line-height `.95–1.04`.
+- Kicker: `.68–.76rem`, peso 800+, uppercase, tracking `.10em`.
+- Corpo: 1rem, line-height 1.55–1.7. Texto pequeno nunca abaixo de `.67rem` e somente para metadados não essenciais.
 
-## Identidade 01 — Nexus Atelier
+## Layout e ritmo
 
-Atmosfera: galeria noturna, precisão industrial, luz azul lunar, objetos de desejo. Fundo `#090b11`; superfícies `#121722` / `#1a2130`; texto `#f1f4fa`; mutado `#a3acbe`; accent `#c9e0ff`; accent forte `#7396ff`. Usar grid técnico fino, microcoordenadas, cantos diagonais e vidro escuro. Nunca neon cyberpunk roxo.
+- Largura de conteúdo: `min(100% - 2rem, 88rem)`; manter respiro generoso até 1440px e centralizar em 1920px.
+- Header: 78–88px, sticky, translúcido, blur leve; compacta ao rolar. Logo à esquerda, navegação central, ações à direita. Mobile usa menu claro, busca sempre acessível e touch targets ≥44px.
+- Hero: duas colunas assimétricas no desktop; mensagem dominante à esquerda, composição do sneaker e card factual à direita. No mobile, texto primeiro e mídia compactada sem cobrir CTAs.
+- Seções alternam Canvas, Creme, Sky-soft, Mint-soft, Pink-soft e Papel para criar ritmo, sem faixas arbitrárias.
+- Grids: 4 colunas em desktop amplo, 3 em laptop, 2 em tablet, 1 em mobile. Cards mantêm alturas coerentes e ações não pulam entre linhas.
+- PDP: galeria editorial grande + resumo sticky somente quando houver espaço; sem seletores de tamanho/cor porque o backend não fornece variantes.
+- Checkout: composição calma e linear; decoração reduzida; prioridade a labels, erros, total autoritativo e próxima ação.
+- Radius: 12–14px em inputs, 18–24px em cards, 28–42px em superfícies especiais, pill somente para chips e CTAs.
 
-## Identidade 02 — Passo Livre
+## Componentes
 
-Atmosfera: editorial de rua, movimento, energia impressa, pista e cartaz. Fundo areia `#ebe7de`; papel `#fffdf7`; tinta `#17140f`; mutado `#71695f`; coral `#ff5c45`; lima `#d8ff54`. Usar barras inclinadas, números de drop grandes, recortes secos, pequenos deslocamentos/rotações. Nunca “loja esportiva azul” genérica.
+- Botão primário: pill Sunshine, texto Ink, peso 800, sombra âmbar difusa; hover translateY(-2px), active scale(.98).
+- Botão secundário: Papel com borda Ink 10–20% e hover Sky-soft.
+- ProductCard: fundo Papel, imagem `object-fit: contain`, badge factual, nome, categoria real, preço BRL, estoque real, favorito e ações. Sem “Pix”, desconto ou marca inventada.
+- Chips/filtros: botão real com `aria-pressed`, estado ativo visível por preenchimento + borda + iconografia, nunca só cor.
+- Overlays/drawers: scrim Ink 42%, blur 7–9px, superfície Canvas/Papel, foco preso e fechamento por Escape quando aplicável.
+- Empty states: Sol Kicks + frase otimista + explicação factual + CTA útil.
+- Toasts: curtos, `role=status`, sem bloquear interação; Mint para sucesso, Pink para favorito, Coral para erro.
 
-## Identidade 03 — Doce Pedaço
+## Imagens e assets
 
-Atmosfera: confeitaria autoral, cerâmica, fruta e papel de receita. Fundo baunilha `#fff8ee`; creme `#fffdf8`; cacau-vinho `#432c2e`; mutado `#896f67`; framboesa `#c84e58`; açafrão `#ffc665`. Formas orgânicas, selos manuscritos discretos, bordas suaves e composição de natureza-morta. Nunca rosa infantil.
-
-## Layout
-
-- Shell máximo: 1440px com margens fluidas.
-- Navbar: 72–78px, translúcida e sticky, marca à esquerda, busca central, ações à direita; mobile reduz busca a ação compacta sem perder acesso.
-- Hero desktop: composição editorial assimétrica em 12 colunas, texto 6–7 colunas e mídia 5–6, com título invadindo levemente a área visual. Mobile empilha texto e mídia sem recortar CTA.
-- Vitrine: grid editorial responsivo; em desktop, variação controlada de spans/altura a cada 6 itens, sem comprometer leitura. Em telas estreitas, uma coluna; tablet, duas.
-- Painel: bento operacional assimétrico, porém formulários mantêm ordem lógica e labels explícitos.
-- Modais/drawers: contraste suficiente, foco visível e áreas de toque ≥44px.
-
-## Superfícies e profundidade
-
-- Bordas 1px com alpha baixo, highlights internos e sombra dupla difusa.
-- Glassmorphism apenas sobre mídia/overlays; não borrar todos os cards.
-- Noise tátil em pseudo-elemento global com opacidade ≤.04.
-- Imagens com máscara específica por tema, `object-fit: cover`, zoom hover máximo 1.06 e fallback elegante.
+- Preservar imagens reais dos produtos e suas proporções; usar fallback somente quando ausentes/inválidas.
+- Hero pode usar `src/assets/brand/kicks-happy-hero.png`, ilustração original e sem marca, como fallback/camada editorial. Produto real continua protagonista quando a API oferece imagem válida.
+- Imagens de catálogo abaixo da dobra: `loading=lazy`, `decoding=async`; hero: prioridade alta.
+- Não usar fotos externas adicionais, logos de terceiros ou imagens que sugiram produtos não cadastrados.
 
 ## Motion
 
-- Hero: stagger curto de 50–90ms; mídia entra com leve escala/rotação temática.
-- Scroll reveal: opacity 0→1 e y 24→0, uma vez, duração 550–750ms.
-- Botões: deslocamento magnético visual máximo 2–3px; tap scale .97.
-- Cards: elevação 4–7px, imagem zoom e borda/accent; sem loop chamativo.
-- Transição de tema: wipe/iris 600–800ms e troca coordenada de tokens.
-- Reduced motion: remover parallax, rotações e deslocamentos; preservar mudança instantânea legível.
+- Motion comunica leveza, não espetáculo: opacity, translate e scale; 160ms rápido, 260ms padrão, 420–520ms editorial.
+- Easing: `cubic-bezier(.2,.8,.2,1)` e spring leve `cubic-bezier(.22,1.3,.36,1)`.
+- Header compacta; cards elevam 3–5px; favorito pulsa uma vez; toast entra suavemente; hero troca mídia em fade/translate curto.
+- Nenhum confete contínuo, parallax de cursor ou loop decorativo obrigatório.
+- `prefers-reduced-motion`: remover autoplay, smooth scroll e transforms não essenciais; preservar feedback instantâneo.
 
-## Acessibilidade e performance
+## Acessibilidade, SEO e performance
 
-- Contraste WCAG AA para texto e controles.
-- `:focus-visible` consistente e não dependente apenas de cor.
-- Imagens de produto com `loading="lazy"` e `decoding="async"`; hero prioritário.
-- Não adicionar bibliotecas além das já presentes (React, Tailwind, Framer Motion).
-- Preservar `data-theme`, IDs dos temas, `id="products"`, props e contratos de API.
+- WCAG AA; foco de 3px em azul `#096A9F`; labels explícitos; HTML semântico; heading hierarchy; regiões e estados anunciados.
+- Touch targets ≥44px; teclado e Escape nos overlays; foco restaurado ao gatilho.
+- `min-width: 320px`; não permitir overflow horizontal em 320–430px.
+- Product schema e breadcrumbs somente com dados reais. Canonical e metas por rota.
+- Preferir CSS para motion simples; lazy-load de páginas e overlays pesados; não adicionar bibliotecas decorativas.
+- Fonte no máximo Bricolage Grotesque + DM Sans. Imagem hero otimizada e responsive antes do deploy.
 
-## Restrições de implementação
+## Restrições duras
 
-- Não alterar autenticação, Bearer, CSRF, payloads ou rewrites da API.
-- Não criar router nem separar o catálogo por tema.
-- Não remover modal obrigatório de cliente.
-- Não transformar painel em dashboard corporativo genérico.
-- Não usar novas cores, fontes ou estilos fora deste documento.
+1. Usar somente as fontes, cores, espaçamentos e estilos deste documento.
+2. Não voltar a dark mode, neon, cyberpunk, estética agressiva ou visual infantil.
+3. Não modificar contratos de autenticação, CSRF, checkout, estoque, pedidos, imagens ou proxy same-origin.
+4. Não expor o painel admin na navegação pública principal.
+5. Não mostrar benefícios, promoções, descontos, reviews ou categorias sem evidência real.
+6. Preservar o Sol Kicks, a headline “Calce a felicidade.” e a identidade clara e premium.

@@ -45,11 +45,11 @@ public class StockAlert {
 
     public StockAlert(Long productId, String productName, String size, String color, String email, String whatsapp) {
         this.productId = productId;
-        this.productName = productName;
-        this.size = size;
-        this.color = color;
+        this.productName = productName != null ? productName.trim() : "";
+        this.size = size != null ? size.trim() : "";
+        this.color = color != null ? color.trim() : "";
         this.email = email != null ? email.trim().toLowerCase() : "";
-        this.whatsapp = whatsapp != null ? whatsapp.trim() : null;
+        this.whatsapp = whatsapp != null && !whatsapp.isBlank() ? whatsapp.trim() : null;
         this.status = "PENDING";
         this.createdAt = Instant.now();
     }

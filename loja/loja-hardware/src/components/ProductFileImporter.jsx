@@ -1,76 +1,45 @@
-import { useState, useRef } from 'react';
+﻿import { useState, useRef } from 'react';
 import { getCategoryId, PRODUCT_CATEGORIES } from '../utils/catalogCategories';
-
-function dataUrlToFile(dataUrl, filename = 'foto.jpg') {
-  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return null;
-  try {
-    const arr = dataUrl.split(',');
-    const mimeMatch = arr[0].match(/:(.*?);/);
-    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-    const bstr = atob(arr[1]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) {
-      u8arr[n] = bstr.charCodeAt(n);
-    }
-    return new File([u8arr], filename, { type: mime });
-  } catch {
-    return null;
-  }
-}
+import { prepareRawOrDataUrlImage, releaseImagePreviewUrls } from '../utils/imagePreparation';
+import { extractExtensionProducts, getExtensionImageCandidates } from '../utils/extensionProductImport';
+import { playUiSound } from '../utils/soundEffects';
 
 async function prepareImagesFromProduct(productItem) {
-  const images = Array.isArray(productItem.images) ? productItem.images : [];
+  const images = getExtensionImageCandidates(productItem, { maxImages: 24 });
+  if (images.length === 0) {
+    throw new Error('nenhuma foto foi encontrada no produto exportado');
+  }
   const entries = [];
-
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i];
-    const dataUrl = typeof img === 'string' ? img : (img.dataUrl || img.url);
-    const fileName = (typeof img === 'object' && img.name) ? img.name : `foto-${i + 1}.jpg`;
-
-    let file = null;
-    let previewUrl = '';
-
-    if (dataUrl && dataUrl.startsWith('data:')) {
-      file = dataUrlToFile(dataUrl, fileName);
-      if (file) {
-        previewUrl = URL.createObjectURL(file);
-      }
-    } else if (dataUrl && dataUrl.startsWith('http')) {
-      try {
-        const res = await fetch(dataUrl);
-        if (res.ok) {
-          const blob = await res.blob();
-          file = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
-          previewUrl = URL.createObjectURL(file);
-        }
-      } catch {
-        previewUrl = dataUrl; // fallback to URL
-      }
-    }
-
-    if (file) {
+  const errors = [];
+  for (const [index, image] of images.entries()) {
+    if (entries.length >= 8) break;
+    try {
+      const file = await prepareRawOrDataUrlImage(image.source, image.name);
+      const imageId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`;
       entries.push({
-        key: `import-${Date.now()}-${i}`,
-        id: `import-${Date.now()}-${i}`,
+        key: `import-${imageId}`,
+        id: imageId,
         kind: 'new',
         file,
-        originalName: fileName,
-        previewUrl: previewUrl || URL.createObjectURL(file),
+        originalName: file.name,
+        previewUrl: URL.createObjectURL(file),
       });
-    } else if (previewUrl) {
-      entries.push({
-        key: `import-url-${Date.now()}-${i}`,
-        id: `import-url-${Date.now()}-${i}`,
-        kind: 'url',
-        imageUrl: previewUrl,
-        originalName: fileName,
-        previewUrl,
-      });
+    } catch (error) {
+      errors.push(`foto ${index + 1}: ${error?.message || 'formato inválido'}`);
     }
   }
 
-  return entries;
+  if (entries.length === 0) {
+    const details = errors.slice(0, 2).join(' ');
+    throw new Error(`nenhuma foto pôde ser importada. ${details}`.trim());
+  }
+  return { entries, errors };
+}
+
+function releaseImportedItems(items, preservedEntries = null) {
+  for (const item of items || []) {
+    if (item.imageEntries !== preservedEntries) releaseImagePreviewUrls(item.imageEntries);
+  }
 }
 
 export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving }) {
@@ -95,6 +64,7 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
+    if (isProcessingFile || batchProgress) return;
     const files = e.dataTransfer?.files;
     if (files && files.length > 0) {
       processFile(files[0]);
@@ -110,8 +80,10 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
   };
 
   const processFile = async (file) => {
+    if (isProcessingFile || batchProgress) return;
     setImportError('');
     setImportSuccess('');
+    releaseImportedItems(parsedData?.items);
     setParsedData(null);
 
     if (!file.name.toLowerCase().endsWith('.json')) {
@@ -121,6 +93,7 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
 
     setIsProcessingFile(true);
 
+    const preparedItems = [];
     try {
       const text = await file.text();
       let json;
@@ -130,65 +103,97 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
         throw new Error('O arquivo selecionado não contém um formato JSON válido.');
       }
 
-      // Identify structure
-      let productsList = [];
+      const productsList = extractExtensionProducts(json);
+      const skippedProducts = [];
+      const imageWarnings = [];
 
-      if (json.format === 'kicks-store-product' && json.product) {
-        productsList = [json.product];
-      } else if (json.format === 'kicks-store-catalog' && Array.isArray(json.items)) {
-        productsList = json.items;
-      } else if (Array.isArray(json)) {
-        productsList = json;
-      } else if (json.name && (json.price !== undefined)) {
-        productsList = [json];
-      } else if (json.product && json.product.name) {
-        productsList = [json.product];
-      } else {
-        throw new Error('Formato de dados do tênis não reconhecido. Certifique-se de usar o arquivo exportado pela extensão Kicks Store.');
+      for (const [productIndex, raw] of productsList.entries()) {
+        const displayName = String(raw.name || '').trim() || `Produto ${productIndex + 1}`;
+        try {
+          const normalizedPrice = Number(raw.price);
+          if (!String(raw.name || '').trim()) throw new Error('o nome está vazio');
+          if (!Number.isFinite(normalizedPrice) || normalizedPrice <= 0) throw new Error('o preço é inválido');
+
+          const matchedCategory = getCategoryId(raw.category) || PRODUCT_CATEGORIES[0]?.id || 'BASQUETE';
+          const preparedImages = await prepareImagesFromProduct(raw);
+          const parsedStock = Number(raw.stockQuantity);
+
+          preparedItems.push({
+            name: displayName,
+            price: normalizedPrice,
+            stockQuantity: Number.isFinite(parsedStock) && parsedStock >= 0 ? Math.trunc(parsedStock) : 10,
+            category: matchedCategory,
+            description: String(raw.description || '').trim(),
+            sourceStore: raw.sourceStore || '',
+            sourceUrl: raw.sourceUrl || '',
+            colorName: String(raw.colorName || '').trim(),
+            colorSourceName: String(raw.colorSourceName || '').trim(),
+            imageEntries: preparedImages.entries,
+            coverUrl: preparedImages.entries[0].previewUrl,
+          });
+          if (preparedImages.errors.length > 0) {
+            imageWarnings.push(`${displayName}: ${preparedImages.errors.length} foto(s) ignorada(s)`);
+          }
+        } catch (error) {
+          skippedProducts.push(`${displayName}: ${error?.message || 'dados inválidos'}`);
+        }
       }
 
-      if (productsList.length === 0) {
-        throw new Error('Nenhum produto encontrado dentro do arquivo.');
+      if (preparedItems.length === 0) {
+        throw new Error(`Nenhum produto pôde ser importado. ${skippedProducts.slice(0, 3).join(' ')}`.trim());
       }
-
-      // Process and normalize products
-      const processedItems = [];
-      for (const raw of productsList) {
-        const catId = getCategoryId(raw.category) || 'BASQUETE';
-        const matchedCategory = PRODUCT_CATEGORIES.find(c => c.id === catId)?.value || raw.category || 'Basquete';
-
-        const imageEntries = await prepareImagesFromProduct(raw);
-
-        processedItems.push({
-          name: String(raw.name || '').trim(),
-          price: Number(raw.price) || 0,
-          stockQuantity: Number(raw.stockQuantity) || 10,
-          category: matchedCategory,
-          description: String(raw.description || '').trim(),
-          sourceStore: raw.sourceStore || '',
-          sourceUrl: raw.sourceUrl || '',
-          imageEntries,
-          coverUrl: imageEntries[0]?.previewUrl || (typeof raw.coverImageUrl === 'string' ? raw.coverImageUrl : '')
-        });
-      }
-
       setParsedData({
-        type: processedItems.length > 1 ? 'batch' : 'single',
-        items: processedItems,
-        fileName: file.name
+        type: preparedItems.length > 1 ? 'batch' : 'single',
+        items: preparedItems,
+        fileName: file.name,
       });
 
-      setImportSuccess(`Arquivo "${file.name}" carregado com sucesso! Encontrado(s) ${processedItems.length} modelo(s) pronto(s) para importação.`);
-
+      playUiSound('success');
+      setImportSuccess(`Arquivo "${file.name}" importado: ${preparedItems.length} produto(s), com todas as fotos prontas em WebP.`);
+      const warnings = [...skippedProducts, ...imageWarnings];
+      if (warnings.length > 0) {
+        setImportError(`Importação parcial: ${warnings.slice(0, 3).join(' ')}`);
+      }
     } catch (err) {
+      releaseImportedItems(preparedItems);
+      playUiSound('pop');
       setImportError(err.message || 'Falha ao processar o arquivo de importação.');
     } finally {
       setIsProcessingFile(false);
     }
   };
 
+  const removeImageFromItem = (itemIndex, imageKey) => {
+    if (!parsedData?.items[itemIndex]) return;
+    const updatedItems = [...parsedData.items];
+    const targetItem = updatedItems[itemIndex];
+    const removed = targetItem.imageEntries.find(e => e.key === imageKey);
+    if (removed?.previewUrl) {
+      try { URL.revokeObjectURL(removed.previewUrl); } catch { /* ignore */ }
+    }
+    targetItem.imageEntries = targetItem.imageEntries.filter(e => e.key !== imageKey);
+    targetItem.coverUrl = targetItem.imageEntries[0]?.previewUrl || '';
+    setParsedData({ ...parsedData, items: updatedItems });
+    playUiSound('click');
+  };
+
+  const setCoverImageForItem = (itemIndex, previewUrl) => {
+    if (!parsedData?.items[itemIndex]) return;
+    const updatedItems = [...parsedData.items];
+    const targetItem = updatedItems[itemIndex];
+    const foundIndex = targetItem.imageEntries.findIndex(e => e.previewUrl === previewUrl);
+    if (foundIndex > 0) {
+      const [moved] = targetItem.imageEntries.splice(foundIndex, 1);
+      targetItem.imageEntries.unshift(moved);
+    }
+    targetItem.coverUrl = previewUrl;
+    setParsedData({ ...parsedData, items: updatedItems });
+    playUiSound('click');
+  };
+
   const handleApplyToForm = (item) => {
     if (!item) return;
+    playUiSound('click');
     onFillForm({
       name: item.name,
       price: item.price,
@@ -197,6 +202,8 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
       description: item.description,
       imageEntries: item.imageEntries,
     });
+    releaseImportedItems(parsedData?.items, item.imageEntries);
+    setParsedData(null);
     setImportSuccess(`Dados de "${item.name}" preenchidos no formulário abaixo! Confira e clique em "Salvar e Publicar".`);
   };
 
@@ -208,7 +215,7 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
     try {
       const files = item.imageEntries.map(e => e.file).filter(Boolean);
       if (files.length === 0) {
-        throw new Error('Nenhuma foto válida encontrada para o cadastro.');
+        throw new Error('Nenhuma foto válida restante para o cadastro. Adicione fotos ou importe outro arquivo.');
       }
 
       await onDirectSave({
@@ -219,9 +226,12 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
         description: item.description,
       }, files);
 
+      releaseImportedItems(parsedData?.items);
+      playUiSound('success');
       setImportSuccess(`🎉 "${item.name}" cadastrado com sucesso no catálogo e publicado na vitrine!`);
       setParsedData(null);
     } catch (err) {
+      playUiSound('pop');
       setImportError(err.message || 'Erro ao salvar o produto diretamente.');
     }
   };
@@ -232,7 +242,8 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
     setImportSuccess('');
 
     const total = parsedData.items.length;
-    let successCount = 0;
+    const failedItems = [];
+    const failureMessages = [];
 
     for (let i = 0; i < total; i++) {
       const item = parsedData.items[i];
@@ -248,34 +259,53 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
             category: item.category,
             description: item.description,
           }, files);
-          successCount++;
+          releaseImagePreviewUrls(item.imageEntries);
+        } else {
+          throw new Error('nenhuma foto WebP válida');
         }
       } catch (err) {
-        console.error(`Erro ao importar ${item.name}:`, err);
+        failedItems.push(item);
+        failureMessages.push(`${item.name}: ${err?.message || 'falha ao salvar'}`);
       }
     }
 
     setBatchProgress(null);
-    setImportSuccess(`🎉 Lote importado com sucesso! ${successCount} de ${total} tênis foram adicionados ao catálogo.`);
-    setParsedData(null);
+    const successCount = total - failedItems.length;
+    if (successCount > 0) {
+      playUiSound('success');
+      setImportSuccess(`🎉 ${successCount} de ${total} tênis foram adicionados ao catálogo em WebP.`);
+    }
+    if (failedItems.length > 0) {
+      playUiSound('pop');
+      setImportError(`Não foi possível salvar ${failedItems.length} item(ns). ${failureMessages.slice(0, 2).join(' ')}`);
+      setParsedData({
+        ...parsedData,
+        type: failedItems.length > 1 ? 'batch' : 'single',
+        items: failedItems,
+      });
+    } else {
+      setParsedData(null);
+    }
   };
 
   const resetImporter = () => {
+    releaseImportedItems(parsedData?.items);
     setParsedData(null);
     setImportError('');
     setImportSuccess('');
+    playUiSound('click');
   };
 
   return (
-    <div className="product-file-importer rounded-3xl p-6 sm:p-7 bg-[var(--surface-solid)] border-2 border-dashed border-[var(--accent)]/40 hover:border-[var(--accent)] transition-all">
+    <div className="product-file-importer rounded-3xl p-6 sm:p-7 bg-white border-2 border-dashed border-[#FFB400]/60 hover:border-[#FFB400] transition-all shadow-[0_2px_16px_rgba(180,120,0,0.06)]">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
-          <span className="section-kicker flex items-center gap-1 text-[var(--accent)]">
+          <span className="section-kicker flex items-center gap-1 text-[#FFB400]">
             <span>📦</span> Importação Automática
           </span>
-          <h3 className="text-lg font-extrabold text-[var(--text)]">Importar Tênis via Arquivo (.JSON da Extensão)</h3>
-          <p className="text-xs text-[var(--muted)] mt-0.5">
-            Arraste ou selecione o arquivo baixado pela extensão <b>Kicks Store Importer</b> para puxar todas as fotos e dados instantaneamente.
+          <h3 className="text-lg font-extrabold text-[#1C1714]">Importar Tênis via Arquivo (.JSON da Extensão)</h3>
+          <p className="text-xs text-[#7A6E65] mt-0.5">
+            Arraste ou selecione o JSON 1.0/1.1/1.2 da extensão. Na versão 1.2, cada cor traduzida vira uma divisão separada do tênis, com suas próprias fotos.
           </p>
         </div>
 
@@ -283,7 +313,7 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
           <button
             type="button"
             onClick={resetImporter}
-            className="text-xs font-semibold text-[var(--muted)] hover:text-rose-500 underline self-start sm:self-auto"
+            className="text-xs font-semibold text-[#7A6E65] hover:text-[#FF6B47] underline self-start sm:self-auto cursor-pointer"
           >
             Limpar / Importar Outro
           </button>
@@ -291,24 +321,26 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
       </div>
 
       {importError && (
-        <div className="mb-4 rounded-xl bg-rose-500/10 p-3 text-xs font-semibold text-rose-500 border border-rose-500/20">
-          ❌ {importError}
+        <div className="mb-4 rounded-xl bg-rose-500/10 p-3.5 text-xs font-semibold text-rose-600 border border-rose-500/30 flex items-center gap-2">
+          <span>❌</span>
+          <span>{importError}</span>
         </div>
       )}
 
       {importSuccess && (
-        <div className="mb-4 rounded-xl bg-emerald-500/10 p-3 text-xs font-semibold text-emerald-500 border border-emerald-500/20">
-          {importSuccess}
+        <div className="mb-4 rounded-xl bg-emerald-500/10 p-3.5 text-xs font-semibold text-emerald-600 border border-emerald-500/30 flex items-center gap-2">
+          <span>✓</span>
+          <span>{importSuccess}</span>
         </div>
       )}
 
       {batchProgress && (
-        <div className="mb-4 rounded-xl bg-amber-500/10 p-4 border border-amber-500/20 text-xs">
-          <div className="flex items-center justify-between font-bold text-amber-500 mb-1">
+        <div className="mb-4 rounded-xl bg-amber-500/10 p-4 border border-amber-500/30 text-xs">
+          <div className="flex items-center justify-between font-bold text-amber-700 mb-1">
             <span>Importando Lote ({batchProgress.current} de {batchProgress.total})…</span>
             <span>{Math.round((batchProgress.current / batchProgress.total) * 100)}%</span>
           </div>
-          <p className="text-[var(--text)] text-[11px] truncate">Salvando agora: <b>{batchProgress.currentName}</b></p>
+          <p className="text-[#1C1714] text-[11px] truncate">Salvando agora: <b>{batchProgress.currentName}</b></p>
         </div>
       )}
 
@@ -317,6 +349,7 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
         ref={fileInputRef}
         type="file"
         accept=".json,application/json"
+        disabled={isProcessingFile || Boolean(batchProgress)}
         className="sr-only"
         onChange={handleFileInputChange}
       />
@@ -327,18 +360,22 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`cursor-pointer rounded-2xl p-8 text-center transition-all flex flex-col items-center justify-center ${
+          onClick={() => {
+            if (!isProcessingFile && !batchProgress) fileInputRef.current?.click();
+          }}
+          className={`rounded-2xl p-8 text-center transition-all flex flex-col items-center justify-center ${
+            isProcessingFile ? 'cursor-wait opacity-70 ' : 'cursor-pointer '
+          }${
             isDragging
-              ? 'bg-[var(--accent)]/10 border-2 border-[var(--accent)] scale-[0.99]'
-              : 'bg-[var(--bg)] border border-[var(--line)] hover:bg-[var(--surface)]'
+              ? 'bg-[#FFF8E8] border-2 border-[#FFB400] scale-[0.99]'
+              : 'bg-[#FFFDF5] border border-black/[0.08] hover:bg-[#FFF8E8]'
           }`}
         >
           <div className="text-4xl mb-2">📥</div>
-          <p className="text-sm font-bold text-[var(--text)]">
-            {isProcessingFile ? 'Lendo e decodificando fotos do arquivo…' : isDragging ? 'Solte o arquivo JSON aqui!' : 'Clique ou Arraste o arquivo .JSON aqui'}
+          <p className="text-sm font-bold text-[#1C1714]">
+            {isProcessingFile ? 'Convertendo e otimizando fotos do arquivo…' : isDragging ? 'Solte o arquivo JSON aqui!' : 'Clique ou Arraste o arquivo .JSON aqui'}
           </p>
-          <p className="text-xs text-[var(--muted)] mt-1 max-w-md">
+          <p className="text-xs text-[#7A6E65] mt-1 max-w-md">
             Compatível com arquivos individuais (<code>kicks-*.json</code>) ou lotes de catálogo exportados pela extensão.
           </p>
         </div>
@@ -350,63 +387,98 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
             (() => {
               const item = parsedData.items[0];
               return (
-                <div className="bg-[var(--bg)] rounded-2xl p-5 border border-[var(--line)]">
+                <div className="bg-[#FFFDF5] rounded-2xl p-5 border border-black/[0.08] shadow-sm">
                   <div className="flex flex-col md:flex-row gap-5 items-start">
                     {/* Cover & Gallery Thumbnails */}
-                    <div className="w-full md:w-48 flex-shrink-0">
+                    <div className="w-full md:w-56 flex-shrink-0">
                       {item.coverUrl ? (
-                        <img
-                          src={item.coverUrl}
-                          alt={item.name}
-                          className="w-full h-36 object-cover rounded-xl border border-[var(--line)] shadow-sm bg-[var(--surface)]"
-                        />
+                        <div className="relative group w-full h-40 rounded-xl border border-black/[0.08] shadow-sm bg-white overflow-hidden p-2 flex items-center justify-center">
+                          <img
+                            src={item.coverUrl}
+                            alt={item.name}
+                            className="max-h-full max-w-full object-contain"
+                          />
+                          <span className="absolute bottom-1.5 left-1.5 bg-black/70 text-white text-[9px] font-mono px-1.5 py-0.5 rounded">
+                            Capa Principal
+                          </span>
+                        </div>
                       ) : (
-                        <div className="w-full h-36 rounded-xl bg-[var(--surface)] flex items-center justify-center text-2xl">👟</div>
+                        <div className="w-full h-40 rounded-xl bg-white border border-black/[0.08] flex items-center justify-center text-3xl">👟</div>
                       )}
 
-                      {/* Small gallery strip */}
-                      {item.imageEntries.length > 1 && (
-                        <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1">
-                          {item.imageEntries.map((img, idx) => (
-                            <img
-                              key={img.key || idx}
-                              src={img.previewUrl}
-                              alt=""
-                              className="w-9 h-9 rounded-lg object-cover border border-[var(--line)] flex-shrink-0"
-                            />
-                          ))}
+                      {/* Small gallery strip with remove button */}
+                      {item.imageEntries.length > 0 && (
+                        <div className="mt-2.5">
+                          <div className="text-[10px] font-mono text-[#9A8F85] uppercase mb-1 flex justify-between">
+                            <span>Fotos ({item.imageEntries.length}/8):</span>
+                            <span className="text-[#FF6B47]">Clique no X para remover</span>
+                          </div>
+                          <div className="flex gap-1.5 overflow-x-auto pb-1">
+                            {item.imageEntries.map((img) => {
+                              const isCover = img.previewUrl === item.coverUrl;
+                              return (
+                                <div
+                                  key={img.key}
+                                  className={`relative group/thumb w-12 h-12 rounded-lg bg-white border flex-shrink-0 p-0.5 cursor-pointer ${
+                                    isCover ? 'border-2 border-[#FFB400] shadow-sm' : 'border-black/[0.1] hover:border-[#FFB400]/60'
+                                  }`}
+                                  onClick={() => setCoverImageForItem(0, img.previewUrl)}
+                                  title="Clique para definir como foto de capa"
+                                >
+                                  <img
+                                    src={img.previewUrl}
+                                    alt=""
+                                    className="w-full h-full object-contain"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      removeImageFromItem(0, img.key);
+                                    }}
+                                    className="absolute -top-1.5 -right-1.5 bg-[#FF6B47] text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center shadow hover:scale-110 cursor-pointer"
+                                    title="Remover esta foto"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       )}
-                      <span className="text-[10px] text-[var(--muted)] block mt-1 text-center font-medium">
-                        {item.imageEntries.length} foto(s) incluída(s)
-                      </span>
                     </div>
 
                     {/* Details */}
                     <div className="flex-1 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="bg-[var(--accent)]/10 text-[var(--accent)] font-bold text-xs px-2.5 py-0.5 rounded-full border border-[var(--accent)]/20">
+                        <span className="bg-[#FFF0C8] text-[#B8840A] font-bold text-xs px-2.5 py-0.5 rounded-full border border-[#FFB400]/30 font-mono-tech">
                           {item.category}
                         </span>
                         {item.sourceStore && (
-                          <span className="text-[10px] bg-[var(--surface)] text-[var(--muted)] px-2 py-0.5 rounded border border-[var(--line)]">
+                          <span className="text-[10px] bg-white text-[#7A6E65] px-2 py-0.5 rounded border border-black/[0.08] font-mono-tech">
                             Origem: {item.sourceStore}
+                          </span>
+                        )}
+                        {item.colorName && (
+                          <span className="text-[10px] bg-[#EAF8FF] text-[#217CA3] px-2 py-0.5 rounded border border-[#69C8FF]/40 font-mono-tech">
+                            Cor: {item.colorName}
                           </span>
                         )}
                       </div>
 
-                      <h4 className="text-base font-extrabold text-[var(--text)]">{item.name}</h4>
+                      <h4 className="text-base font-extrabold text-[#1C1714]">{item.name}</h4>
 
-                      <div className="flex items-center gap-4 text-xs">
-                        <span className="text-emerald-500 font-bold text-sm">
+                      <div className="flex items-center gap-4 text-xs font-mono-tech">
+                        <span className="text-emerald-600 font-bold text-sm">
                           {Number(item.price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                         </span>
-                        <span className="text-[var(--muted)]">•</span>
-                        <span className="text-[var(--muted)]">Estoque inicial: <b>{item.stockQuantity} un</b></span>
+                        <span className="text-[#9A8F85]">•</span>
+                        <span className="text-[#7A6E65]">Estoque inicial: <b>{item.stockQuantity} un</b></span>
                       </div>
 
                       {item.description && (
-                        <p className="text-xs text-[var(--muted)] line-clamp-2 italic">
+                        <p className="text-xs text-[#7A6E65] line-clamp-2 italic">
                           "{item.description}"
                         </p>
                       )}
@@ -416,16 +488,16 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
                         <button
                           type="button"
                           onClick={() => handleApplyToForm(item)}
-                          className="buy-button px-4 py-2 rounded-xl text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
+                          className="btn-brutalist !py-2.5 !px-4 !text-xs cursor-pointer flex items-center gap-1.5 shadow-md"
                         >
                           <span>✨</span> Preencher no Formulário de Edição
                         </button>
 
                         <button
                           type="button"
-                          disabled={isSaving}
+                          disabled={isSaving || item.imageEntries.length === 0}
                           onClick={() => handleSaveDirectly(item)}
-                          className="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--surface)] text-[var(--text)] border border-[var(--line)] hover:border-[var(--accent)] cursor-pointer disabled:opacity-50"
+                          className="px-4 py-2.5 rounded-md text-xs font-bold font-mono-tech uppercase bg-white text-[#1C1714] border border-black/[0.12] hover:border-[#FFB400] hover:bg-[#FFF8E8] cursor-pointer disabled:opacity-50 transition-all"
                         >
                           <span>⚡</span> Salvar Direto no Catálogo
                         </button>
@@ -437,54 +509,61 @@ export default function ProductFileImporter({ onFillForm, onDirectSave, isSaving
             })()
           ) : (
             /* Batch Sneakers Preview */
-            <div className="bg-[var(--bg)] rounded-2xl p-5 border border-[var(--line)] space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--line)] pb-3">
+            <div className="bg-[#FFFDF5] rounded-2xl p-5 border border-black/[0.08] space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-black/[0.08] pb-3">
                 <div>
-                  <h4 className="font-extrabold text-sm text-[var(--text)]">
+                  <h4 className="font-extrabold text-sm text-[#1C1714]">
                     📦 Lote com {parsedData.items.length} modelos de tênis
                   </h4>
-                  <span className="text-xs text-[var(--muted)]">
-                    Todos os itens possuem fotos e especificações prontas para publicação.
+                  <span className="text-xs text-[#7A6E65]">
+                    Todos os itens foram convertidos e otimizados prontos para publicação.
                   </span>
                 </div>
 
                 <button
                   type="button"
-                  disabled={Boolean(batchProgress) || isSaving}
+                  disabled={isSaving || Boolean(batchProgress)}
                   onClick={handleSaveAllBatch}
-                  className="buy-button px-5 py-2.5 rounded-xl text-xs font-bold shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-1.5 self-start sm:self-auto"
+                  className="btn-brutalist !py-2 !px-4 !text-xs cursor-pointer shadow-md self-start sm:self-auto"
                 >
-                  <span>⚡</span> Importar Todos ({parsedData.items.length}) para a Loja
+                  <span>⚡</span> Publicar Todos ({parsedData.items.length}) no Catálogo
                 </button>
               </div>
 
-              {/* Items List */}
-              <div className="grid gap-2.5 max-h-64 overflow-y-auto pr-1">
-                {parsedData.items.map((it, idx) => (
+              <div className="grid gap-3 max-h-80 overflow-y-auto pr-1">
+                {parsedData.items.map((item, idx) => (
                   <div
                     key={idx}
-                    className="flex items-center justify-between bg-[var(--surface)] p-2.5 rounded-xl border border-[var(--line)] text-xs"
+                    className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white border border-black/[0.08] text-xs"
                   >
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      {it.coverUrl ? (
-                        <img src={it.coverUrl} alt="" className="w-10 h-10 rounded-lg object-cover border border-[var(--line)] flex-shrink-0" />
+                    <div className="flex items-center gap-3 min-w-0">
+                      {item.coverUrl ? (
+                        <img
+                          src={item.coverUrl}
+                          alt=""
+                          className="w-10 h-10 rounded-lg object-contain bg-[#FFF8E8] border border-black/[0.08] flex-shrink-0"
+                        />
                       ) : (
-                        <div className="w-10 h-10 rounded-lg bg-[var(--bg)] flex items-center justify-center text-sm">👟</div>
+                        <div className="w-10 h-10 rounded-lg bg-[#FFF8E8] flex items-center justify-center text-sm">👟</div>
                       )}
-                      <div className="overflow-hidden">
-                        <span className="font-bold text-[var(--text)] block truncate">{it.name}</span>
-                        <span className="text-[11px] text-[var(--muted)]">
-                          {Number(it.price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} • {it.category} • {it.imageEntries.length} fotos
-                        </span>
+                      <div className="min-w-0">
+                        <span className="font-bold text-[#1C1714] truncate block">{item.name}</span>
+                        <div className="flex items-center gap-2 text-[11px] text-[#7A6E65] font-mono-tech">
+                          <span>{item.category}</span>
+                          <span>•</span>
+                          <span className="text-emerald-600 font-bold">R$ {Number(item.price).toFixed(2)}</span>
+                          <span>•</span>
+                          <span>{item.imageEntries.length} fotos</span>
+                        </div>
                       </div>
                     </div>
 
                     <button
                       type="button"
-                      onClick={() => handleApplyToForm(it)}
-                      className="px-2.5 py-1 rounded-lg bg-[var(--bg)] text-[var(--accent)] font-semibold border border-[var(--line)] hover:border-[var(--accent)] flex-shrink-0 text-[11px]"
+                      onClick={() => handleApplyToForm(item)}
+                      className="px-2.5 py-1 text-[11px] font-mono-tech font-bold bg-[#FFF8E8] text-[#1C1714] border border-black/[0.1] rounded hover:border-[#FFB400] cursor-pointer flex-shrink-0"
                     >
-                      Preencher no Form
+                      Editar →
                     </button>
                   </div>
                 ))}

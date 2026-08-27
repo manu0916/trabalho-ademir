@@ -80,6 +80,7 @@ public class AdminBearerAuthenticationFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         return "/api/products".equals(path) || path.startsWith("/api/products/")
                 || "/api/storefront/hero".equals(path) || path.startsWith("/api/storefront/hero/")
+                || "/api/storefront/footer".equals(path) || path.startsWith("/api/storefront/footer/")
                 || path.startsWith("/api/admin/orders/");
     }
 }

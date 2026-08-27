@@ -4,12 +4,14 @@ import com.ecommerce.hardware.model.StockAlert;
 import com.ecommerce.hardware.repository.StockAlertRepository;
 import com.ecommerce.hardware.security.InputSanitizer;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +28,10 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api")
 public class StockAlertController {
 
+    private static final Pattern WHATSAPP_INPUT_PATTERN = Pattern.compile("^\\+?[0-9() .\\-]+$");
+    private static final Pattern WHATSAPP_DIGITS_PATTERN = Pattern.compile("^\\d{10,15}$");
+    private static final Pattern NON_DIGIT_PATTERN = Pattern.compile("[^0-9]");
+
     private final StockAlertRepository stockAlerts;
 
     public StockAlertController(StockAlertRepository stockAlerts) {
@@ -40,22 +46,29 @@ public class StockAlertController {
             @Size(max = 200)
             String productName,
 
-            @NotBlank(message = "Tamanho é obrigatório.")
             @Size(max = 20)
             String size,
 
-            @NotBlank(message = "Cor é obrigatória.")
             @Size(max = 80)
             String color,
 
-            @NotBlank(message = "E-mail é obrigatório.")
             @Email(message = "E-mail inválido.")
             @Size(max = 254)
             String email,
 
             @Size(max = 30)
             String whatsapp
-    ) { }
+    ) {
+        @AssertTrue(message = "Informe um e-mail ou WhatsApp para receber o aviso.")
+        public boolean isContactChannelProvided() {
+            return hasText(email) || normalizeWhatsapp(whatsapp) != null;
+        }
+
+        @AssertTrue(message = "WhatsApp inválido.")
+        public boolean isWhatsappValid() {
+            return !hasText(whatsapp) || normalizeWhatsapp(whatsapp) != null;
+        }
+    }
 
     public record StockAlertView(
             Long id,
@@ -85,11 +98,21 @@ public class StockAlertController {
 
     @PostMapping("/stock-alerts")
     public ResponseEntity<StockAlertView> createAlert(@Valid @RequestBody CreateStockAlertRequest request) {
-        String cleanEmail = InputSanitizer.sanitizeEmail(request.email());
+        String cleanEmail = normalizeOptionalEmail(request.email());
         String cleanName = InputSanitizer.sanitizeText(request.productName());
-        String cleanSize = InputSanitizer.sanitizeText(request.size());
-        String cleanColor = InputSanitizer.sanitizeText(request.color());
-        String cleanWhatsapp = request.whatsapp() != null ? InputSanitizer.sanitizeText(request.whatsapp()) : null;
+        String cleanSize = normalizeOptionalText(request.size());
+        String cleanColor = normalizeOptionalText(request.color());
+        String cleanWhatsapp = normalizeWhatsapp(request.whatsapp());
+
+        if (!hasText(cleanName)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nome do produto é obrigatório.");
+        }
+        if (!hasText(cleanEmail) && cleanWhatsapp == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Informe um e-mail ou WhatsApp para receber o aviso."
+            );
+        }
 
         StockAlert alert = new StockAlert(
                 request.productId(),
@@ -101,6 +124,34 @@ public class StockAlertController {
         );
         StockAlert saved = stockAlerts.save(alert);
         return ResponseEntity.status(HttpStatus.CREATED).body(StockAlertView.from(saved));
+    }
+
+    private static String normalizeOptionalText(String value) {
+        String sanitized = InputSanitizer.sanitizeText(value);
+        return sanitized == null ? "" : sanitized;
+    }
+
+    private static String normalizeOptionalEmail(String value) {
+        String sanitized = InputSanitizer.sanitizeEmail(value);
+        return sanitized == null ? "" : sanitized;
+    }
+
+    private static String normalizeWhatsapp(String value) {
+        if (!hasText(value)) {
+            return null;
+        }
+
+        String trimmed = value.trim();
+        if (!WHATSAPP_INPUT_PATTERN.matcher(trimmed).matches()) {
+            return null;
+        }
+
+        String digits = NON_DIGIT_PATTERN.matcher(trimmed).replaceAll("");
+        return WHATSAPP_DIGITS_PATTERN.matcher(digits).matches() ? digits : null;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     @GetMapping("/admin/stock-alerts")

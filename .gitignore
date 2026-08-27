@@ -5,3 +5,6 @@
 **/target/
 **/dist/
 **/node_modules/
+.superdesign/resume.json
+**/.openai/
+*.log

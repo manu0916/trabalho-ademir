@@ -1,5 +1,7 @@
 package com.ecommerce.hardware;
 
+import com.ecommerce.hardware.auth.AdminLoginRequest;
+import com.ecommerce.hardware.controller.AdminAuthController;
 import com.ecommerce.hardware.model.Product;
 import com.ecommerce.hardware.repository.ProductRepository;
 import com.ecommerce.hardware.security.StripeWebhookBodyLimitFilter;
@@ -59,6 +61,9 @@ class HardwareApplicationTests {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private AdminAuthController adminAuthController;
 
     @MockitoBean
     private StripePaymentGateway stripePaymentGateway;
@@ -150,6 +155,97 @@ class HardwareApplicationTests {
                         .header("Access-Control-Request-Method", "POST"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", previewOrigin));
+    }
+
+    @Test
+    void corsRejectsArbitraryChromiumExtensionsAndUntrustedWebsites() throws Exception {
+        String extensionOrigin = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+
+        mockMvc.perform(options("/api/admin/auth/token")
+                        .header(HttpHeaders.ORIGIN, extensionOrigin)
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "content-type"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+
+        mockMvc.perform(options("/api/admin/auth/token")
+                        .header(HttpHeaders.ORIGIN, "https://untrusted.example")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+    }
+
+    @Test
+    void chromiumExtensionObtainsBearerWithoutSessionWhileWebLoginKeepsCsrfProtection() throws Exception {
+        String credentials = "{\"email\":\"admin@example.test\",\"password\":\"password1234\"}";
+
+        mockMvc.perform(post("/api/admin/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/admin/auth/token")
+                        .with(request -> {
+                            request.setRemoteAddr("198.51.100.21");
+                            return request;
+                        })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@example.test\",\"password\":\"senha-incorreta\"}"))
+                .andExpect(status().isUnauthorized());
+
+        MvcResult tokenResult = mockMvc.perform(post("/api/admin/auth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(header().string(HttpHeaders.PRAGMA, "no-cache"))
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.expiresAtEpochSeconds").isNumber())
+                .andExpect(jsonPath("$.email").doesNotExist())
+                .andReturn();
+
+        String accessToken = JsonMapper.shared().readTree(tokenResult.getResponse().getContentAsString())
+                .path("accessToken").asText();
+        assertFalse(accessToken.isBlank());
+    }
+
+    @Test
+    void extensionTokenControllerDoesNotCreateAnHttpSession() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("198.51.100.23");
+
+        var response = adminAuthController.token(
+                new AdminLoginRequest("admin@example.test", "password1234"), request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNull(request.getSession(false));
+    }
+
+    @Test
+    void extensionTokenExchangeInheritsAdministratorLoginRateLimit() throws Exception {
+        String credentials = "{\"email\":\"blocked@example.test\",\"password\":\"password1234\"}";
+
+        for (int attempt = 1; attempt < 5; attempt++) {
+            mockMvc.perform(post("/api/admin/auth/token")
+                            .with(request -> {
+                                request.setRemoteAddr("198.51.100.22");
+                                return request;
+                            })
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(credentials))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(post("/api/admin/auth/token")
+                        .with(request -> {
+                            request.setRemoteAddr("198.51.100.22");
+                            return request;
+                        })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(credentials))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER));
     }
 
     @Test

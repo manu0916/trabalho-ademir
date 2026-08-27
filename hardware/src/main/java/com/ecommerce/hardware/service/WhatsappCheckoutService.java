@@ -2,6 +2,7 @@ package com.ecommerce.hardware.service;
 
 import com.ecommerce.hardware.config.StoreProperties;
 import com.ecommerce.hardware.model.CustomerAccount;
+import com.ecommerce.hardware.model.InventoryStatus;
 import com.ecommerce.hardware.model.PaymentCheckoutAttempt;
 import com.ecommerce.hardware.model.PaymentProvider;
 import com.ecommerce.hardware.model.PaymentState;
@@ -26,6 +27,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -147,7 +149,7 @@ public class WhatsappCheckoutService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Este pedido não é um pedido WhatsApp.");
         }
-        order.cancelWhatsappOrder(); // no-op when already terminal
+        cancelAndRestoreReservedInventory(order);
         return PaymentService.PaymentView.from(order);
     }
 
@@ -170,13 +172,39 @@ public class WhatsappCheckoutService {
                             || !order.canCancelPayment()
                             || order.getWhatsappExpiresAt() == null
                             || order.getWhatsappExpiresAt().isAfter(Instant.now())) return;
-                    order.cancelWhatsappOrder();
-                    LOG.info("WhatsApp order expired and cancelled: orderId={}", orderId);
+                    if (cancelAndRestoreReservedInventory(order)) {
+                        LOG.info("WhatsApp order expired and cancelled: orderId={}", orderId);
+                    }
                 });
             } catch (RuntimeException ex) {
                 LOG.warn("WhatsApp order expiry deferred: orderId={} reason={}", orderId, ex.getMessage());
             }
         }
+    }
+
+    /**
+     * Restores stock and cancels a pending WhatsApp order in the caller's transaction.
+     * The order row is already locked by every caller. The inventory status is the
+     * idempotency guard: after the first successful transaction the order is terminal
+     * and no longer RESERVED, so retries cannot add the quantities again.
+     */
+    private boolean cancelAndRestoreReservedInventory(PurchaseOrder order) {
+        if (!order.canCancelPayment()) return false;
+        if (order.getInventoryStatus() != InventoryStatus.RESERVED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "O estoque reservado deste pedido requer revisão manual.");
+        }
+
+        for (PurchaseOrderItem item : order.getItems().stream()
+                .sorted(Comparator.comparing(PurchaseOrderItem::getProductId))
+                .toList()) {
+            Product product = products.findByIdForUpdate(item.getProductId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+                            "Um produto do pedido não existe mais. É necessária revisão manual."));
+            product.setStockQuantity(Math.addExact(product.getStockQuantity(), item.getQuantity()));
+        }
+        order.cancelWhatsappOrder();
+        return true;
     }
 
     // ── Internal transaction ─────────────────────────────────────────────────────

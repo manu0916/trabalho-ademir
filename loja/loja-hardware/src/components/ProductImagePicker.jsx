@@ -105,7 +105,7 @@ export default function ProductImagePicker({
     <fieldset className="product-gallery-fieldset" disabled={disabled} aria-describedby="product-gallery-help product-gallery-status">
       <legend className="product-gallery-legend">Fotos do tênis <span aria-hidden="true">*</span></legend>
       <div className="product-gallery-heading">
-        <p id="product-gallery-help">Selecione de 1 a {MAX_PRODUCT_IMAGES} arquivos JPG, PNG ou WebP. A primeira foto será a capa.</p>
+        <p id="product-gallery-help">Selecione de 1 a {MAX_PRODUCT_IMAGES} arquivos JPG, PNG ou WebP. Todos serão otimizados em WebP; a primeira foto será a capa.</p>
         <span className="product-gallery-count" aria-label={`${images.length} de ${MAX_PRODUCT_IMAGES} fotos selecionadas`}>{images.length}/{MAX_PRODUCT_IMAGES}</span>
       </div>
 

@@ -1,6 +1,14 @@
 // Kicks Store - Sneaker Exporter & Importer Controller
 
 document.addEventListener('DOMContentLoaded', async () => {
+  const imageProcessor = globalThis.KicksImageProcessor;
+  const colorTranslator = globalThis.KicksColorTranslator;
+  const MAX_PRODUCT_IMAGES = 8;
+  const CONTENT_SCRIPT_VERSION = '1.2.0';
+  if (!imageProcessor) {
+    throw new Error('O conversor WebP da extensão não foi carregado. Recarregue a extensão.');
+  }
+
   // Navigation & Views
   const tabScanner = document.getElementById('tabScanner');
   const tabBatch = document.getElementById('tabBatch');
@@ -18,6 +26,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const imageGallery = document.getElementById('imageGallery');
   const selectAllImagesBtn = document.getElementById('selectAllImagesBtn');
   const selectedImagesCount = document.getElementById('selectedImagesCount');
+  const colorVariantsSection = document.getElementById('colorVariantsSection');
+  const colorVariantsList = document.getElementById('colorVariantsList');
+  const selectedColorVariantsCount = document.getElementById('selectedColorVariantsCount');
   
   const productNameInput = document.getElementById('productName');
   const productPriceInput = document.getElementById('productPrice');
@@ -48,13 +59,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   const openStoreLink = document.getElementById('openStoreLink');
 
   let currentImages = [];
+  let currentColorVariants = [];
   let currentScannedMetadata = {};
   let adminToken = null;
+  let adminTokenExpiresAt = 0;
   let batchProducts = [];
 
   // ── 1. Initialization ───────────────────────────────────────────────────────
-  await loadSettings();
-  await loadBatch();
+  try {
+    await loadSettings();
+  } catch (error) {
+    apiUrlInput.value = 'http://localhost:8080';
+    showStatus(error.message, 'error');
+  }
+  try {
+    await loadBatch();
+  } catch (error) {
+    showStatus(error.message, 'error');
+  }
   checkApiConnection();
 
   // Tab Switching
@@ -90,34 +112,46 @@ document.addEventListener('DOMContentLoaded', async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab || !tab.id) throw new Error('Nenhuma aba ativa encontrada.');
 
-      // Inject content script if needed
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ['content.js']
-        });
-      } catch {
-        // Continue if already injected
+      await ensureContentScript(tab.id);
+      const response = await sendTabMessage(tab.id, { action: 'SCAN_PAGE_V2' });
+      if (!response?.success) {
+        throw new Error(response?.error || 'Não foi possível escanear esta página. Certifique-se de estar na página de um tênis.');
       }
-
-      // Send SCAN_PAGE message to content script
-      chrome.tabs.sendMessage(tab.id, { action: 'SCAN_PAGE' }, (response) => {
-        scanPageBtn.disabled = false;
-        scanPageBtn.innerHTML = '<span class="btn-icon">🔍</span> Escanear Tênis Nesta Página';
-
-        if (chrome.runtime.lastError || !response || !response.success) {
-          showStatus('Não foi possível escanear esta página. Certifique-se de estar na página de um tênis.', 'error');
-          return;
-        }
-
-        populateProduct(response.product);
-      });
+      populateProduct(response.product);
     } catch (err) {
+      showStatus(err.message || 'Erro ao escanear a página.', 'error');
+    } finally {
       scanPageBtn.disabled = false;
       scanPageBtn.innerHTML = '<span class="btn-icon">🔍</span> Escanear Tênis Nesta Página';
-      showStatus(err.message || 'Erro ao escanear a página.', 'error');
     }
   });
+
+  async function ensureContentScript(tabId) {
+    try {
+      const response = await sendTabMessage(tabId, { action: 'PING' });
+      if (response?.ready && response.version === CONTENT_SCRIPT_VERSION) return;
+    } catch {
+      // The script has not been injected in this tab yet.
+    }
+
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['color-translation.js', 'content.js']
+    });
+  }
+
+  function sendTabMessage(tabId, message) {
+    return new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(tabId, message, (response) => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          reject(new Error(error.message || 'Não foi possível comunicar com a página ativa.'));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
 
   function populateProduct(product) {
     if (!product) return;
@@ -136,15 +170,89 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentImages = (product.images || []).map((img, index) => ({
       id: index + 1,
       url: typeof img === 'string' ? img : img.url,
-      selected: true
+      selected: index < MAX_PRODUCT_IMAGES
+    }));
+
+    currentColorVariants = (product.variants || []).map((variant, index) => ({
+      id: `color-${index + 1}`,
+      sourceName: String(variant?.sourceName || variant?.name || '').trim(),
+      name: String(variant?.name || '').trim()
+        || colorTranslator?.translateColorName?.(variant?.sourceName, index)
+        || String(variant?.sourceName || `Cor ${index + 1}`).trim(),
+      imageUrl: String(variant?.imageUrl || variant?.images?.[0]?.url || '').trim(),
+      images: (variant?.images || [])
+        .map((image) => typeof image === 'string' ? image : image?.url)
+        .filter(Boolean),
+      selected: variant?.selected !== false,
     }));
 
     renderGallery();
+    renderColorVariants();
 
     emptyState.classList.add('is-hidden');
     productForm.classList.remove('is-hidden');
 
-    showStatus(`Tênis escaneado com sucesso! Encontradas ${currentImages.length} fotos prontas para exportar.`, 'success');
+    const selectedCount = Math.min(currentImages.length, MAX_PRODUCT_IMAGES);
+    const limitNotice = currentImages.length > MAX_PRODUCT_IMAGES
+      ? ` As ${MAX_PRODUCT_IMAGES} primeiras foram selecionadas, que é o limite aceito pela loja.`
+      : '';
+    const colorNotice = currentColorVariants.length > 0
+      ? ` ${currentColorVariants.length} cor(es) separada(s) e traduzida(s) para português.`
+      : ' Nenhuma divisão de cor foi identificada nesta página.';
+    showStatus(`Tênis escaneado com sucesso! Encontradas ${currentImages.length} fotos.${limitNotice || ` ${selectedCount} prontas para exportar.`}${colorNotice}`, 'success');
+  }
+
+  function renderColorVariants() {
+    colorVariantsList.innerHTML = '';
+    if (currentColorVariants.length === 0) {
+      colorVariantsSection.classList.add('is-hidden');
+      selectedColorVariantsCount.textContent = '0';
+      return;
+    }
+
+    colorVariantsSection.classList.remove('is-hidden');
+    for (const variant of currentColorVariants) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = `color-variant-card ${variant.selected ? 'is-selected' : ''}`;
+      card.title = variant.selected ? 'Clique para não exportar esta cor' : 'Clique para exportar esta cor';
+
+      const swatch = document.createElement('span');
+      swatch.className = 'color-variant-swatch';
+      if (variant.imageUrl) {
+        const image = document.createElement('img');
+        image.src = variant.imageUrl;
+        image.alt = '';
+        image.loading = 'lazy';
+        image.onerror = () => { swatch.textContent = '🎨'; };
+        swatch.appendChild(image);
+      } else {
+        swatch.textContent = '🎨';
+      }
+
+      const copy = document.createElement('span');
+      copy.className = 'color-variant-copy';
+      const translated = document.createElement('span');
+      translated.className = 'color-variant-name';
+      translated.textContent = variant.name;
+      const source = document.createElement('span');
+      source.className = 'color-variant-source';
+      source.textContent = variant.sourceName && variant.sourceName !== variant.name
+        ? `${variant.sourceName} → ${variant.images.length} foto(s)`
+        : `${variant.images.length} foto(s) desta cor`;
+      copy.append(translated, source);
+
+      const check = document.createElement('span');
+      check.className = 'color-variant-check';
+      check.textContent = '✓';
+      card.append(swatch, copy, check);
+      card.addEventListener('click', () => {
+        variant.selected = !variant.selected;
+        renderColorVariants();
+      });
+      colorVariantsList.appendChild(card);
+    }
+    selectedColorVariantsCount.textContent = String(currentColorVariants.filter((variant) => variant.selected).length);
   }
 
   // ── 3. Image Gallery Controller ───────────────────────────────────────────
@@ -176,6 +284,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       card.appendChild(checkEl);
 
       card.addEventListener('click', () => {
+        const selectedTotal = currentImages.filter(item => item.selected).length;
+        if (!img.selected && selectedTotal >= MAX_PRODUCT_IMAGES) {
+          showStatus(`A loja aceita no máximo ${MAX_PRODUCT_IMAGES} fotos por produto. Desmarque uma foto antes de selecionar outra.`, 'error');
+          return;
+        }
         img.selected = !img.selected;
         renderGallery();
       });
@@ -192,8 +305,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   selectAllImagesBtn.addEventListener('click', () => {
-    const allSelected = currentImages.every(img => img.selected);
-    currentImages.forEach(img => { img.selected = !allSelected; });
+    const eligibleImages = currentImages.slice(0, MAX_PRODUCT_IMAGES);
+    const allEligibleSelected = eligibleImages.length > 0 && eligibleImages.every(img => img.selected);
+    currentImages.forEach((img, index) => {
+      img.selected = !allEligibleSelected && index < MAX_PRODUCT_IMAGES;
+    });
     renderGallery();
   });
 
@@ -211,18 +327,45 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (isNaN(stockQuantity) || stockQuantity < 0) throw new Error('Informe um estoque válido.');
     if (selectedImages.length === 0) throw new Error('Selecione pelo menos uma foto para a galeria.');
 
-    // Fetch and convert images to Base64 data URLs for 100% self-contained JSON
-    const processedImages = [];
-    for (let i = 0; i < selectedImages.length; i++) {
-      const imgItem = selectedImages[i];
-      progressCallback?.(`Baixando e processando foto ${i + 1} de ${selectedImages.length}…`);
-      
-      const dataUrl = await fetchImageAsDataUrl(imgItem.url);
-      processedImages.push({
-        id: i + 1,
-        url: imgItem.url,
-        dataUrl: dataUrl || imgItem.url, // Full Base64 or fallback to original URL
-        name: `foto-${i + 1}.jpg`
+    if (selectedImages.length > MAX_PRODUCT_IMAGES) {
+      throw new Error(`A loja aceita no máximo ${MAX_PRODUCT_IMAGES} fotos por produto.`);
+    }
+
+    // Download, decode and re-encode every selected image. A URL-only fallback
+    // would make the JSON depend on CORS/hotlinking when opened by the store.
+    const preparationCache = new Map();
+    const prepareImages = async (sources, label) => {
+      const uniqueSources = [...new Set(sources.filter(Boolean))].slice(0, MAX_PRODUCT_IMAGES);
+      const processed = [];
+      for (let i = 0; i < uniqueSources.length; i++) {
+        const source = uniqueSources[i];
+        progressCallback?.(`Convertendo ${label}: foto ${i + 1} de ${uniqueSources.length} para WebP…`);
+        try {
+          let prepared = preparationCache.get(source);
+          if (!prepared) {
+            prepared = await imageProcessor.prepareImageAsWebp(source);
+            preparationCache.set(source, prepared);
+          }
+          processed.push(imageProcessor.createExportImage(prepared, i + 1, source));
+        } catch (error) {
+          throw new Error(`${label}, foto ${i + 1}: ${error.message} Desmarque esta foto ou tente outra origem.`);
+        }
+      }
+      return processed;
+    };
+
+    const processedImages = await prepareImages(selectedImages.map((image) => image.url), 'galeria geral');
+    const selectedVariants = currentColorVariants.filter((variant) => variant.selected);
+    const colorVariants = [];
+    for (let index = 0; index < selectedVariants.length; index++) {
+      const variant = selectedVariants[index];
+      const variantImages = await prepareImages(variant.images, `cor ${variant.name}`);
+      colorVariants.push({
+        id: variant.id || `color-${index + 1}`,
+        name: variant.name,
+        sourceName: variant.sourceName,
+        coverImageUrl: variantImages[0]?.dataUrl || processedImages[0]?.dataUrl || '',
+        images: variantImages,
       });
     }
 
@@ -235,27 +378,29 @@ document.addEventListener('DOMContentLoaded', async () => {
       sourceStore: currentScannedMetadata.sourceStore || '',
       sourceUrl: currentScannedMetadata.sourceUrl || '',
       coverImageUrl: processedImages[0]?.dataUrl || processedImages[0]?.url || '',
-      images: processedImages
+      images: processedImages,
+      colorVariants,
     };
   }
 
-  async function fetchImageAsDataUrl(url) {
-    if (!url) return null;
-    if (url.startsWith('data:image/')) return url;
-
-    try {
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      const blob = await res.blob();
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(blob);
-      });
-    } catch {
-      return null;
-    }
+  function expandColorwaysForStore(productData) {
+    const variants = Array.isArray(productData?.colorVariants) ? productData.colorVariants : [];
+    if (variants.length === 0) return [productData];
+    return variants.map((variant) => {
+      const colorName = String(variant.name || '').trim();
+      const images = Array.isArray(variant.images) && variant.images.length > 0
+        ? variant.images
+        : productData.images;
+      return {
+        ...productData,
+        name: colorName ? `${productData.name} — ${colorName}` : productData.name,
+        colorName,
+        colorSourceName: variant.sourceName || '',
+        coverImageUrl: images?.[0]?.dataUrl || images?.[0]?.url || productData.coverImageUrl,
+        images,
+        colorVariants: undefined,
+      };
+    });
   }
 
   // ── 5. Download Single Sneaker JSON File ───────────────────────────────────
@@ -273,7 +418,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const filePayload = {
         format: 'kicks-store-product',
-        version: '1.0',
+        version: '1.2',
         exportedAt: new Date().toISOString(),
         product: productData
       };
@@ -311,7 +456,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const filePayload = {
         format: 'kicks-store-product',
-        version: '1.0',
+        version: '1.2',
         exportedAt: new Date().toISOString(),
         product: productData
       };
@@ -337,13 +482,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         addToBatchBtn.innerHTML = `<span class="btn-icon">⏳</span> ${msg}`;
       });
 
-      batchProducts.push({
+      const batchItem = {
         id: globalThis.crypto?.randomUUID?.() || String(Date.now()),
         addedAt: new Date().toISOString(),
         ...productData
-      });
+      };
+      batchProducts.push(batchItem);
 
-      await saveBatch();
+      try {
+        await saveBatch();
+      } catch (error) {
+        batchProducts = batchProducts.filter(item => item !== batchItem);
+        throw error;
+      }
       updateBatchBadges();
 
       showStatus(`✅ "${productData.name}" adicionado ao lote! Total de ${batchProducts.length} tênis no lote.`, 'success');
@@ -396,9 +547,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       card.querySelector('.batch-item-remove').addEventListener('click', async (e) => {
         const idx = parseInt(e.target.getAttribute('data-index'), 10);
-        batchProducts.splice(idx, 1);
-        await saveBatch();
-        renderBatchView();
+        const [removed] = batchProducts.splice(idx, 1);
+        try {
+          await saveBatch();
+          renderBatchView();
+        } catch (error) {
+          batchProducts.splice(idx, 0, removed);
+          showStatus(error.message, 'error');
+        }
       });
 
       batchItemsList.appendChild(card);
@@ -410,7 +566,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const filePayload = {
       format: 'kicks-store-catalog',
-      version: '1.0',
+      version: '1.2',
       exportedAt: new Date().toISOString(),
       count: batchProducts.length,
       items: batchProducts
@@ -426,14 +582,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   clearBatchBtn.addEventListener('click', async () => {
     if (batchProducts.length === 0) return;
     if (!confirm('Deseja limpar todos os tênis do lote?')) return;
+    const previousBatch = batchProducts;
     batchProducts = [];
-    await saveBatch();
-    renderBatchView();
+    try {
+      await saveBatch();
+      renderBatchView();
+    } catch (error) {
+      batchProducts = previousBatch;
+      showStatus(error.message, 'error');
+    }
   });
 
   async function loadBatch() {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       chrome.storage.local.get(['batchProducts'], (res) => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          reject(new Error(`Não foi possível carregar o lote salvo: ${error.message}`));
+          return;
+        }
         batchProducts = Array.isArray(res.batchProducts) ? res.batchProducts : [];
         updateBatchBadges();
         resolve(batchProducts);
@@ -442,8 +609,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function saveBatch() {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       chrome.storage.local.set({ batchProducts }, () => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          reject(new Error(`Não foi possível salvar o lote na extensão: ${error.message}. Baixe ou limpe o lote atual e tente novamente.`));
+          return;
+        }
         resolve();
       });
     });
@@ -478,47 +650,49 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const token = await getOrFetchAdminToken();
       if (!token) throw new Error('Não foi possível autenticar como Administrador no Kicks Store.');
-
-      const formData = new FormData();
-      const productPayload = {
-        name: productData.name,
-        price: productData.price,
-        stockQuantity: productData.stockQuantity,
-        category: productData.category,
-        description: productData.description
-      };
-
-      formData.append('product', new Blob([JSON.stringify(productPayload)], { type: 'application/json' }));
-
-      for (let i = 0; i < productData.images.length; i++) {
-        const img = productData.images[i];
-        let blob;
-        if (img.dataUrl.startsWith('data:')) {
-          const res = await fetch(img.dataUrl);
-          blob = await res.blob();
-        } else {
-          blob = await fetchImageAsBlob(img.url);
-        }
-        if (blob) {
-          const ext = blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg';
-          formData.append('images', blob, `shoe-image-${i + 1}.${ext}`);
-        }
-      }
-
       const settings = await getSettings();
-      const response = await fetch(`${settings.apiUrl}/api/products`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
+      const productsToCreate = expandColorwaysForStore(productData);
+      const createdProducts = [];
+      for (let productIndex = 0; productIndex < productsToCreate.length; productIndex++) {
+        const colorway = productsToCreate[productIndex];
+        submitProductBtn.innerHTML = `<span class="btn-icon">⏳</span> Enviando cor ${productIndex + 1} de ${productsToCreate.length}...`;
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Falha ao cadastrar tênis (HTTP ${response.status})`);
+        const formData = new FormData();
+        formData.append('product', new Blob([JSON.stringify({
+          name: colorway.name,
+          price: colorway.price,
+          stockQuantity: colorway.stockQuantity,
+          category: colorway.category,
+          description: colorway.description
+        })], { type: 'application/json' }));
+
+        for (let imageIndex = 0; imageIndex < colorway.images.length; imageIndex++) {
+          const image = colorway.images[imageIndex];
+          const imageResponse = await fetch(image.dataUrl);
+          const blob = await imageResponse.blob();
+          if (blob.type !== imageProcessor.OUTPUT_MIME_TYPE || !(await imageProcessor.hasWebpSignature(blob))) {
+            throw new Error(`${colorway.name}, foto ${imageIndex + 1}: os dados preparados não são um WebP válido.`);
+          }
+          if (blob.size > imageProcessor.MAX_OUTPUT_BYTES) {
+            throw new Error(`${colorway.name}, foto ${imageIndex + 1}: o arquivo WebP excede 2 MB.`);
+          }
+          formData.append('images', blob, image.name || `foto-${imageIndex + 1}.webp`);
+        }
+
+        const response = await fetch(`${settings.apiUrl}/api/products`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || errorData.detail || errorData.error || `Falha ao cadastrar ${colorway.name} (HTTP ${response.status})`);
+        }
+        createdProducts.push(await response.json());
       }
 
-      const created = await response.json();
-      showStatus(`🎉 "${created.name}" cadastrado com sucesso na Kicks Store (ID #${created.id})!`, 'success');
+      const colorNotice = createdProducts.length > 1 ? ` em ${createdProducts.length} divisões de cor` : '';
+      showStatus(`🎉 "${productData.name}" cadastrado com sucesso${colorNotice} na Kicks Store!`, 'success');
 
     } catch (err) {
       showStatus(err.message || 'Erro ao enviar para a API da loja.', 'error');
@@ -528,22 +702,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  async function fetchImageAsBlob(url) {
-    try {
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      return await res.blob();
-    } catch {
-      return null;
-    }
-  }
-
   // ── 9. Admin Authentication & Token Cache ──────────────────────────────────
   async function getOrFetchAdminToken() {
-    if (adminToken) return adminToken;
+    const nowEpochSeconds = Math.floor(Date.now() / 1000);
+    if (adminToken && adminTokenExpiresAt > nowEpochSeconds + 30) return adminToken;
 
     const settings = await getSettings();
-    const loginRes = await fetch(`${settings.apiUrl}/api/admin/auth/login`, {
+    if (!settings.adminEmail || !settings.adminPassword) {
+      throw new Error('Informe o e-mail e a senha do administrador na aba Conexão API.');
+    }
+
+    const loginRes = await fetch(`${settings.apiUrl}/api/admin/auth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -556,27 +725,40 @@ document.addEventListener('DOMContentLoaded', async () => {
       throw new Error(`Falha no login admin no Kicks Store (${settings.apiUrl}). Verifique as credenciais na aba Conexão API.`);
     }
 
-    const data = await loginRes.json();
+    const data = await loginRes.json().catch(() => ({}));
+    if (!data.accessToken || typeof data.accessToken !== 'string') {
+      throw new Error('A API respondeu sem um token de administrador válido.');
+    }
     adminToken = data.accessToken;
+    const receivedExpiry = Number(data.expiresAtEpochSeconds);
+    adminTokenExpiresAt = Number.isFinite(receivedExpiry) && receivedExpiry > nowEpochSeconds
+      ? receivedExpiry
+      : nowEpochSeconds + 60;
     return adminToken;
   }
 
   // ── 10. Settings Actions ───────────────────────────────────────────────────
   saveSettingsBtn.addEventListener('click', async () => {
-    const apiUrl = apiUrlInput.value.trim().replace(/\/+$/, '');
-    const adminEmail = adminEmailInput.value.trim();
-    const adminPassword = adminPasswordInput.value.trim();
+    try {
+      const apiUrl = normalizeApiUrl(apiUrlInput.value);
+      const adminEmail = adminEmailInput.value.trim();
+      const adminPassword = adminPasswordInput.value;
 
-    await chrome.storage.local.set({ apiUrl, adminEmail, adminPassword });
-    adminToken = null;
-    showSettingsFeedback('Configurações salvas com sucesso!', 'success');
-    checkApiConnection();
+      await setLocalStorage({ apiUrl, adminEmail, adminPassword });
+      adminToken = null;
+      adminTokenExpiresAt = 0;
+      showSettingsFeedback('Configurações salvas com sucesso!', 'success');
+      checkApiConnection();
+    } catch (error) {
+      showSettingsFeedback(error.message || 'Não foi possível salvar as configurações.', 'error');
+    }
   });
 
   testConnectionBtn.addEventListener('click', async () => {
     showSettingsFeedback('Testando conexão com o back-end...', 'info');
     try {
       adminToken = null;
+      adminTokenExpiresAt = 0;
       const token = await getOrFetchAdminToken();
       if (token) {
         showSettingsFeedback('⚡ Conexão estabelecida com sucesso! Autenticado como Administrador.', 'success');
@@ -606,22 +788,65 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function loadSettings() {
     const settings = await getSettings();
-    apiUrlInput.value = settings.apiUrl || 'http://localhost:8080';
-    adminEmailInput.value = settings.adminEmail || 'admin@example.test';
-    adminPasswordInput.value = settings.adminPassword || 'password1234';
+    apiUrlInput.value = settings.apiUrl;
+    adminEmailInput.value = settings.adminEmail;
+    adminPasswordInput.value = settings.adminPassword;
     if (openStoreLink && settings.apiUrl.includes('localhost')) {
       openStoreLink.href = 'http://localhost:5173';
     }
   }
 
   function getSettings() {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       chrome.storage.local.get(['apiUrl', 'adminEmail', 'adminPassword'], (result) => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          reject(new Error(`Não foi possível ler as configurações da extensão: ${error.message}`));
+          return;
+        }
+
+        let apiUrl;
+        try {
+          apiUrl = normalizeApiUrl(result.apiUrl || 'http://localhost:8080');
+        } catch {
+          apiUrl = 'http://localhost:8080';
+        }
         resolve({
-          apiUrl: (result.apiUrl || 'http://localhost:8080').replace(/\/+$/, ''),
-          adminEmail: result.adminEmail || 'admin@example.test',
-          adminPassword: result.adminPassword || 'password1234'
+          apiUrl,
+          adminEmail: typeof result.adminEmail === 'string' ? result.adminEmail : '',
+          adminPassword: typeof result.adminPassword === 'string' ? result.adminPassword : ''
         });
+      });
+    });
+  }
+
+  function normalizeApiUrl(value) {
+    let parsed;
+    try {
+      parsed = new URL(String(value || '').trim());
+    } catch {
+      throw new Error('Informe uma URL válida para a API, incluindo http:// ou https://.');
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('A URL da API precisa usar HTTP ou HTTPS.');
+    }
+    if (parsed.username || parsed.password) {
+      throw new Error('Não inclua credenciais dentro da URL da API.');
+    }
+    parsed.hash = '';
+    parsed.search = '';
+    return parsed.href.replace(/\/+$/, '');
+  }
+
+  function setLocalStorage(values) {
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.set(values, () => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          reject(new Error(`Não foi possível gravar os dados da extensão: ${error.message}`));
+          return;
+        }
+        resolve();
       });
     });
   }

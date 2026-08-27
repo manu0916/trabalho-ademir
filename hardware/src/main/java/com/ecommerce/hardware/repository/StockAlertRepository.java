@@ -11,4 +11,6 @@ public interface StockAlertRepository extends JpaRepository<StockAlert, Long> {
     List<StockAlert> findByProductIdAndStatus(Long productId, String status);
 
     long countByStatus(String status);
+
+    void deleteByProductId(Long productId);
 }
