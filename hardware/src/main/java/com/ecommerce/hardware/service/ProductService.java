@@ -11,6 +11,8 @@ import com.ecommerce.hardware.model.ProductImage;
 import com.ecommerce.hardware.repository.ProductImageRepository;
 import com.ecommerce.hardware.repository.ProductImageRepository.ProductImageMetadata;
 import com.ecommerce.hardware.repository.ProductRepository;
+import com.ecommerce.hardware.repository.ProductReviewRepository;
+import com.ecommerce.hardware.repository.StockAlertRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,19 +29,26 @@ import java.util.Map;
 public class ProductService {
 
     public static final int MAX_IMAGES = 8;
+    public static final String CATALOG_DELETE_CONFIRMATION = "APAGAR CATALOGO";
     private static final String IMAGE_URL_PREFIX = "/api/products/";
 
     private final ProductRepository productRepository;
     private final ProductImageRepository imageRepository;
+    private final ProductReviewRepository reviewRepository;
+    private final StockAlertRepository stockAlertRepository;
     private final ImageUrlResolver imageUrlResolver;
     private final ImageUploadValidator imageValidator;
 
     public ProductService(ProductRepository productRepository,
                           ProductImageRepository imageRepository,
+                          ProductReviewRepository reviewRepository,
+                          StockAlertRepository stockAlertRepository,
                           ImageUrlResolver imageUrlResolver,
                           ImageUploadValidator imageValidator) {
         this.productRepository = productRepository;
         this.imageRepository = imageRepository;
+        this.reviewRepository = reviewRepository;
+        this.stockAlertRepository = stockAlertRepository;
         this.imageUrlResolver = imageUrlResolver;
         this.imageValidator = imageValidator;
     }
@@ -123,6 +132,21 @@ public class ProductService {
         return response(saved, images);
     }
 
+    @Transactional
+    public CatalogDeletionResult deleteCatalog() {
+        long deletedProducts = productRepository.count();
+        long deletedImages = imageRepository.count();
+        long deletedReviews = reviewRepository.count();
+        long deletedStockAlerts = stockAlertRepository.count();
+
+        reviewRepository.deleteAllInBatch();
+        imageRepository.deleteAllInBatch();
+        stockAlertRepository.deleteAllInBatch();
+        productRepository.deleteAllInBatch();
+
+        return new CatalogDeletionResult(deletedProducts, deletedImages, deletedReviews, deletedStockAlerts);
+    }
+
     @Transactional(readOnly = true)
     public StoredProductImage getImage(Long productId, Long imageId) {
         ProductImage image = imageRepository.findByIdAndProduct_Id(imageId, productId)
@@ -179,5 +203,9 @@ public class ProductService {
     }
 
     public record StoredProductImage(Long id, String contentType, byte[] bytes) {
+    }
+
+    public record CatalogDeletionResult(long deletedProducts, long deletedImages,
+                                        long deletedReviews, long deletedStockAlerts) {
     }
 }
